@@ -31,6 +31,8 @@ objs 	:= $(patsubst %.c,$(out-dir)/%.o, $(srcs))
 CFLAGS += -I./
 
 CFLAGS += -I$(OPTEE_ROOT)/optee_client/public
+CFLAGS += -I$(OPTEE_ROOT)/ms-tpm-20-ref/Samples/ARM32-FirmwareTPM/optee_ta/fTPM/include
+CFLAGS += -I$(OPTEE_ROOT)/ms-tpm-20-ref/TPMCmd/tpm/include
 
 CFLAGS += -Wall -Wcast-align -Werror \
 	  -Werror-implicit-function-declaration -Wextra -Wfloat-equal \
