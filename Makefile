@@ -13,7 +13,11 @@ OBJCOPY		= $(CROSS_COMPILE)objcopy
 OBJDUMP		= $(CROSS_COMPILE)objdump
 READELF		= $(CROSS_COMPILE)readelf
 
-OPTEE_ROOT ?= ..
+
+OPTEE_ROOT        ?= ..
+MBEDTLS_PATH      ?= $(OPTEE_ROOT)/mbedtls
+FTPM_PATH         ?= $(OPTEE_ROOT)/ms-tpm-20-ref
+OPTEE_CLIENT_PATH ?= $(OPTEE_ROOT)/optee_client
 
 # Macros to detect the targeted architecture (e.g., arm-linux-gnueabihf or
 # aarch64-linux-gnu) and the corresponding bit size (32 or 64).
@@ -30,9 +34,10 @@ objs 	:= $(patsubst %.c,$(out-dir)/%.o, $(srcs))
 
 CFLAGS += -I./
 
-CFLAGS += -I$(OPTEE_ROOT)/optee_client/public
-CFLAGS += -I$(OPTEE_ROOT)/ms-tpm-20-ref/Samples/ARM32-FirmwareTPM/optee_ta/fTPM/include
-CFLAGS += -I$(OPTEE_ROOT)/ms-tpm-20-ref/TPMCmd/tpm/include
+CFLAGS += -I$(OPTEE_CLIENT_PATH)/public
+CFLAGS += -I$(FTPM_PATH)/Samples/ARM32-FirmwareTPM/optee_ta/fTPM/include
+CFLAGS += -I$(FTPM_PATH)/TPMCmd/tpm/include
+CFLAGS += -I$(MBEDTLS_PATH)/include
 
 CFLAGS += -Wall -Wcast-align -Werror \
 	  -Werror-implicit-function-declaration -Wextra -Wfloat-equal \
@@ -40,7 +45,7 @@ CFLAGS += -Wall -Wcast-align -Werror \
 	  -Wmissing-declarations -Wmissing-format-attribute \
 	  -Wmissing-include-dirs \
 	  -Wmissing-prototypes -Wnested-externs -Wpointer-arith \
-	  -Wshadow -Wstrict-prototypes -Wswitch-default \
+	  -Wshadow -Wstrict-prototypes \
 	  -Wwrite-strings -Wno-unused-parameter \
 	  -Wno-declaration-after-statement \
 	  -Wno-missing-field-initializers -Wno-format-zero-length
@@ -48,11 +53,13 @@ CFLAGS += -Wall -Wcast-align -Werror \
 CFLAGS += -g3
 
 LDFLAGS += -L $(OPTEE_ROOT)/out-br/target/usr/lib/ -lteec
+LDFLAGS += -L $(MBEDTLS_PATH)/library -lmbedx509 -lmbedcrypto -lmbedtls
 
 .PHONY: all
 all: ra_verifier
 
 ra_verifier: $(objs)
+	make -C $(MBEDTLS_PATH)/library CC="$(CC)" static
 	@echo	"Cross compile " $(CROSS_COMPILE)
 	@echo "  LD      $(out-dir)/$@"
 	$(CROSS_COMPILE)$(CC) -o $(out-dir)/$@ $+ $(LDFLAGS)
