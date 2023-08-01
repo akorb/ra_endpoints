@@ -6,7 +6,8 @@
 
 static const TEEC_UUID ftpmTEEApp = TA_FTPM_UUID;
 
-int main(void)
+static TEEC_Result invoke_ftpm_ta(uint8_t *buffer_crts, size_t buffer_crts_len,
+                                  uint16_t *buffer_offsets, size_t buffer_offsets_len)
 {
     /* Allocate TEE Client structures on the stack. */
     TEEC_Context context;
@@ -14,16 +15,6 @@ int main(void)
     TEEC_Operation operation;
     TEEC_Result result;
     uint32_t err_origin;
-
-    // The certificates are stored here in DER format
-    // For our certificates, they are always a bit smaller than 1000 bytes.
-    // We expect a certificate chain of length 5.
-    // Go give a 5 * 1000 bytes buffer 
-    uint8_t buffer_crts[5000];
-
-    // first element is length of chain
-    // Array size must be at least length of chain + 1
-    uint16_t buffer_offsets[8];
 
     /* ========================================================================
     [1] Connect to TEE
@@ -60,12 +51,12 @@ int main(void)
      * receive a value in the second parameter.
      */
     operation.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_OUTPUT, TEEC_MEMREF_TEMP_OUTPUT,
-                                     TEEC_NONE, TEEC_NONE);
+                                            TEEC_NONE, TEEC_NONE);
     operation.params[0].tmpref.buffer = buffer_crts;
-    operation.params[0].tmpref.size = sizeof(buffer_crts);
+    operation.params[0].tmpref.size = buffer_crts_len;
 
     operation.params[1].tmpref.buffer = buffer_offsets;
-    operation.params[1].tmpref.size = sizeof(buffer_offsets);
+    operation.params[1].tmpref.size = buffer_offsets_len;
 
     printf("Invoking fTPM TA to attest itself... \n");
     result = TEEC_InvokeCommand(&session, TA_FTPM_ATTEST,
@@ -73,18 +64,13 @@ int main(void)
     if (result != TEEC_SUCCESS)
     {
         printf("TEEC_InvokeCommand failed with code 0x%x origin 0x%x",
-             result, err_origin);
+               result, err_origin);
         goto cleanup3;
     }
-
-    printf("Certificate chain length: %d\n", buffer_offsets[0]);
 
     /*
      * We're done with the TA, close the session and
      * destroy the context.
-     *
-     * The TA will print "Goodbye!" in the log when the
-     * session is closed.
      */
 
 cleanup3:
@@ -93,4 +79,24 @@ cleanup2:
     TEEC_FinalizeContext(&context);
 cleanup1:
     return result;
+}
+
+int main(void)
+{
+    // The certificates are stored here in DER format
+    // For our certificates, they are always a bit smaller than 1000 bytes.
+    // We expect a certificate chain of length 5.
+    // Go give a 5 * 1000 bytes buffer
+    uint8_t buffer_crts[5000];
+
+    // first element is length of chain
+    // Array size must be at least length of chain + 1
+    uint16_t buffer_offsets[8];
+
+    invoke_ftpm_ta(buffer_crts, sizeof(buffer_crts),
+                   buffer_offsets, sizeof(buffer_offsets));
+
+    printf("Certificate chain length: %d\n", buffer_offsets[0]);
+
+    return 0;
 }
