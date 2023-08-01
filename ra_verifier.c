@@ -14,8 +14,16 @@ int main(void)
     TEEC_Operation operation;
     TEEC_Result result;
     uint32_t err_origin;
-    uint8_t out_str[50];
-    uint8_t in_str[] = "to the TEE";
+
+    // The certificates are stored here in DER format
+    // For our certificates, they are always a bit smaller than 1000 bytes.
+    // We expect a certificate chain of length 5.
+    // Go give a 5 * 1000 bytes buffer 
+    uint8_t buffer_crts[5000];
+
+    // first element is length of chain
+    // Array size must be at least length of chain + 1
+    uint16_t buffer_offsets[8];
 
     /* ========================================================================
     [1] Connect to TEE
@@ -51,16 +59,16 @@ int main(void)
      * Prepare the argument. Pass a value in the first parameter,
      * receive a value in the second parameter.
      */
-    operation.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_INPUT, TEEC_MEMREF_TEMP_OUTPUT,
+    operation.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_OUTPUT, TEEC_MEMREF_TEMP_OUTPUT,
                                      TEEC_NONE, TEEC_NONE);
-    operation.params[0].tmpref.buffer = in_str;
-    operation.params[0].tmpref.size = sizeof(in_str);
+    operation.params[0].tmpref.buffer = buffer_crts;
+    operation.params[0].tmpref.size = sizeof(buffer_crts);
 
-    operation.params[1].tmpref.buffer = out_str;
-    operation.params[1].tmpref.size = sizeof(out_str);
+    operation.params[1].tmpref.buffer = buffer_offsets;
+    operation.params[1].tmpref.size = sizeof(buffer_offsets);
 
-    printf("Invoking TA to generate Hello World string... \n");
-    result = TEEC_InvokeCommand(&session, TA_FTPM_HELLO_WORLD,
+    printf("Invoking fTPM TA to attest itself... \n");
+    result = TEEC_InvokeCommand(&session, TA_FTPM_ATTEST,
                                 &operation, &err_origin);
     if (result != TEEC_SUCCESS)
     {
@@ -69,7 +77,7 @@ int main(void)
         goto cleanup3;
     }
 
-    printf("%s\n", out_str);
+    printf("Certificate chain length: %d\n", buffer_offsets[0]);
 
     /*
      * We're done with the TA, close the session and
