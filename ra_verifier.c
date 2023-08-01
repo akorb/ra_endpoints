@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -101,9 +102,12 @@ static int parse_buffers(const uint8_t *buffer_crts, const size_t buffer_crts_le
 
     const uint16_t *sizes = &buffer_sizes[1];
     const uint8_t *cur_crt = buffer_crts;
-    // TODO: Add boundary checks
+    
     for (int i = 0; i < certificate_count; i++)
     {
+        assert(&sizes[i] + sizeof(sizes[0]) < &buffer_sizes[buffer_sizes_len]);
+        assert(cur_crt + sizes[i] < &buffer_crts[buffer_crts_len]);
+
         res = mbedtls_x509_crt_parse(crt_ctx, cur_crt, sizes[i]);
         if (res != 0)
         {
@@ -144,7 +148,7 @@ int main(void)
     mbedtls_x509_dn_gets(name_bl1, sizeof(name_bl1), &crt_ctx.issuer);
     mbedtls_x509_crt_free(&crt_ctx);
 
-	printf("Issuer of BL1: %s\n", name_bl1);
+    printf("Issuer of BL1: %s\n", name_bl1);
     printf("Certificate chain length: %d\n", buffer_offsets[0]);
 
     return 0;
