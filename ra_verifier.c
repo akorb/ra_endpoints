@@ -103,12 +103,24 @@ cleanup1:
     return result;
 }
 
+static int parse_crt_from_buffer(mbedtls_x509_crt *crt_ctx, const uint8_t *crt_buf, const size_t crt_len, const char *cert_name)
+{
+    int res = mbedtls_x509_crt_parse(crt_ctx, crt_buf, crt_len);
+    if (res != 0)
+    {
+        char error_buf[256];
+        mbedtls_strerror(res, error_buf, 256);
+        printf(" parsing %s failed\n  !  mbedtls_x509_crt_parse returned -0x%x - %s\n",
+               cert_name, (unsigned int)-res, error_buf);
+    }
+    return res;
+}
+
 static int parse_buffers(const uint8_t *buffer_crts, const size_t buffer_crts_len,
                          const uint16_t *buffer_sizes, const size_t buffer_sizes_len,
                          mbedtls_x509_crt *crt_ctx)
 {
     int res;
-    char buf[256];
     int certificate_count = buffer_sizes[0];
 
     const uint16_t *sizes = &buffer_sizes[1];
@@ -119,14 +131,9 @@ static int parse_buffers(const uint8_t *buffer_crts, const size_t buffer_crts_le
         assert(&sizes[i] + sizeof(sizes[0]) < &buffer_sizes[buffer_sizes_len]);
         assert(cur_crt + sizes[i] < &buffer_crts[buffer_crts_len]);
 
-        res = mbedtls_x509_crt_parse(crt_ctx, cur_crt, sizes[i]);
+        res = parse_crt_from_buffer(crt_ctx, cur_crt, sizes[i], out_filenames[i]);
         if (res != 0)
-        {
-            mbedtls_strerror(res, buf, 256);
-            printf(" parsing crt_bl1 failed\n  !  mbedtls_x509_crt_parse returned -0x%x - %s\n",
-                   (unsigned int)-res, buf);
-            return 1;
-        }
+            return res;
 
         cur_crt += sizes[i];
     }
@@ -162,50 +169,38 @@ static int write_certificates(mbedtls_x509_crt *crt_ctx)
     return 0;
 }
 
-static int print_subjects_of_certificates(mbedtls_x509_crt *crt_ctx)
+static int print_subjects_of_certificates(mbedtls_x509_crt *crt_ctx, mbedtls_x509_crt *root_crt)
 {
     char subject[50];
+    mbedtls_x509_dn_gets(subject, sizeof(subject), &root_crt->subject);
+    printf("Cert [0]: %s\n", subject);
+
     for (int i = 0; crt_ctx != NULL; crt_ctx = crt_ctx->next, i++)
     {
         mbedtls_x509_dn_gets(subject, sizeof(subject), &crt_ctx->subject);
-        printf("Cert [%d]: %s\n", i, subject);
+        printf("Cert [%d]: %s\n", i + 1, subject);
     }
 
     return 0;
 }
 
-static int verify(mbedtls_x509_crt *chain)
+static int verify_chain(mbedtls_x509_crt *chain, mbedtls_x509_crt *root_crt)
 {
     // From https://stackoverflow.com/a/72722115/2050020
 
-    uint32_t flags = 0;
-
     int res;
-    char buf[256];
-
-    mbedtls_x509_crt ca;
-    mbedtls_x509_crt_init(&ca);
-    res = mbedtls_x509_crt_parse(&ca, crt_manufacturer, sizeof(crt_manufacturer));
-    if (res != 0)
-    {
-        mbedtls_strerror(res, buf, 256);
-        printf(" parsing crt_manufacturer failed\n  !  mbedtls_x509_crt_parse returned -0x%x - %s\n",
-               (unsigned int)-res, buf);
-    }
-
-    if ((res = mbedtls_x509_crt_verify(chain, &ca, NULL, NULL, &flags,
-                                     NULL, NULL)) != 0)
+    uint32_t flags = 0;
+    if ((res = mbedtls_x509_crt_verify(chain, root_crt, NULL, NULL, &flags,
+                                       NULL, NULL)) != 0)
     {
         char vrfy_buf[512];
-        printf("Verification failed\n");
         mbedtls_x509_crt_verify_info(vrfy_buf, sizeof(vrfy_buf), "  ! ", flags);
-        printf("%s\n", vrfy_buf);
+        printf("Verification failed. Reason: %s\n", vrfy_buf);
         printf("Error: 0x%04x; flag: %u\n", res, flags);
     }
     else
         printf("Verification OK\n");
-    
-    mbedtls_x509_crt_free(&ca);
+
     return res;
 }
 
@@ -221,8 +216,14 @@ int main(void)
     // Array size must be at least length of chain + 1
     uint16_t buffer_offsets[8];
 
-    mbedtls_x509_crt crt_ctx;
+    mbedtls_x509_crt crt_ctx, root_crt;
     mbedtls_x509_crt_init(&crt_ctx);
+    mbedtls_x509_crt_init(&root_crt);
+
+    int res = parse_crt_from_buffer(&root_crt, crt_manufacturer, sizeof(crt_manufacturer), "crt_manufacturer");
+    if (res != 0)
+        return res;
+
 
     invoke_ftpm_ta(buffer_crts, sizeof(buffer_crts),
                    buffer_offsets, sizeof(buffer_offsets));
@@ -230,12 +231,11 @@ int main(void)
     parse_buffers(buffer_crts, sizeof(buffer_crts),
                   buffer_offsets, sizeof(buffer_offsets), &crt_ctx);
 
-    print_subjects_of_certificates(&crt_ctx);
+    print_subjects_of_certificates(&crt_ctx, &root_crt);
     write_certificates(&crt_ctx);
-    verify(&crt_ctx);
+    verify_chain(&crt_ctx, &root_crt);
     mbedtls_x509_crt_free(&crt_ctx);
-
-    printf("Certificate chain length: %d\n", buffer_offsets[0]);
+    mbedtls_x509_crt_free(&root_crt);
 
     return 0;
 }
