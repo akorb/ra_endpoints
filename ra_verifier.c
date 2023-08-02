@@ -174,6 +174,41 @@ static int print_subjects_of_certificates(mbedtls_x509_crt *crt_ctx)
     return 0;
 }
 
+static int verify(mbedtls_x509_crt *chain)
+{
+    // From https://stackoverflow.com/a/72722115/2050020
+
+    uint32_t flags = 0;
+
+    int res;
+    char buf[256];
+
+    mbedtls_x509_crt ca;
+    mbedtls_x509_crt_init(&ca);
+    res = mbedtls_x509_crt_parse(&ca, crt_manufacturer, sizeof(crt_manufacturer));
+    if (res != 0)
+    {
+        mbedtls_strerror(res, buf, 256);
+        printf(" parsing crt_manufacturer failed\n  !  mbedtls_x509_crt_parse returned -0x%x - %s\n",
+               (unsigned int)-res, buf);
+    }
+
+    if ((res = mbedtls_x509_crt_verify(chain, &ca, NULL, NULL, &flags,
+                                     NULL, NULL)) != 0)
+    {
+        char vrfy_buf[512];
+        printf("Verification failed\n");
+        mbedtls_x509_crt_verify_info(vrfy_buf, sizeof(vrfy_buf), "  ! ", flags);
+        printf("%s\n", vrfy_buf);
+        printf("Error: 0x%04x; flag: %u\n", res, flags);
+    }
+    else
+        printf("Verification OK\n");
+    
+    mbedtls_x509_crt_free(&ca);
+    return res;
+}
+
 int main(void)
 {
     // The certificates are stored here in DER format
@@ -197,6 +232,7 @@ int main(void)
 
     print_subjects_of_certificates(&crt_ctx);
     write_certificates(&crt_ctx);
+    verify(&crt_ctx);
     mbedtls_x509_crt_free(&crt_ctx);
 
     printf("Certificate chain length: %d\n", buffer_offsets[0]);
