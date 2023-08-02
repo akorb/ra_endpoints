@@ -172,13 +172,15 @@ static int write_certificates(mbedtls_x509_crt *crt_ctx)
 static int print_subjects_of_certificates(mbedtls_x509_crt *crt_ctx, mbedtls_x509_crt *root_crt)
 {
     char subject[50];
+    const char template[] = "Cert [%d]: %s\n";
+
     mbedtls_x509_dn_gets(subject, sizeof(subject), &root_crt->subject);
-    printf("Cert [0]: %s\n", subject);
+    printf(template, 0, subject);
 
     for (int i = 0; crt_ctx != NULL; crt_ctx = crt_ctx->next, i++)
     {
         mbedtls_x509_dn_gets(subject, sizeof(subject), &crt_ctx->subject);
-        printf("Cert [%d]: %s\n", i + 1, subject);
+        printf(template, i + 1, subject);
     }
 
     return 0;
@@ -223,7 +225,6 @@ int main(void)
     int res = parse_crt_from_buffer(&root_crt, crt_manufacturer, sizeof(crt_manufacturer), "crt_manufacturer");
     if (res != 0)
         return res;
-
 
     invoke_ftpm_ta(buffer_crts, sizeof(buffer_crts),
                    buffer_offsets, sizeof(buffer_offsets));
