@@ -67,6 +67,11 @@ static TEEC_Result invoke_ftpm_ta(uint8_t *buffer_crts, size_t buffer_crts_len,
     /*
      * Prepare the arguments.
      */
+
+    // TODO: Maybe third output parameter, where we return the count of certificates
+    // I.e., split the count parameter from the 'sizes' parameter
+    // But don't do it know, since maybe we need more Input parameters,
+    // e.g., Nonce, or configuration parameters
     operation.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_OUTPUT, TEEC_MEMREF_TEMP_OUTPUT,
                                             TEEC_NONE, TEEC_NONE);
     operation.params[0].tmpref.buffer = buffer_crts;
@@ -102,10 +107,6 @@ static int parse_buffers(const uint8_t *buffer_crts, const size_t buffer_crts_le
                          const uint16_t *buffer_sizes, const size_t buffer_sizes_len,
                          mbedtls_x509_crt *crt_ctx)
 {
-    // TODO: Maybe third output parameter, where we return the count of certificates
-    // I.e., split the count parameter from the 'sizes' parameter
-    // But don't do it know, since maybe we need more Input parameters,
-    // e.g., Nonce, or configuration parameters
     int res;
     char buf[256];
     int certificate_count = buffer_sizes[0];
@@ -161,6 +162,18 @@ static int write_certificates(mbedtls_x509_crt *crt_ctx)
     return 0;
 }
 
+static int print_subjects_of_certificates(mbedtls_x509_crt *crt_ctx)
+{
+    char subject[50];
+    for (int i = 0; crt_ctx != NULL; crt_ctx = crt_ctx->next, i++)
+    {
+        mbedtls_x509_dn_gets(subject, sizeof(subject), &crt_ctx->subject);
+        printf("Cert [%d]: %s\n", i, subject);
+    }
+
+    return 0;
+}
+
 int main(void)
 {
     // The certificates are stored here in DER format
@@ -173,7 +186,6 @@ int main(void)
     // Array size must be at least length of chain + 1
     uint16_t buffer_offsets[8];
 
-    char name_bl1[50];
     mbedtls_x509_crt crt_ctx;
     mbedtls_x509_crt_init(&crt_ctx);
 
@@ -183,11 +195,10 @@ int main(void)
     parse_buffers(buffer_crts, sizeof(buffer_crts),
                   buffer_offsets, sizeof(buffer_offsets), &crt_ctx);
 
+    print_subjects_of_certificates(&crt_ctx);
     write_certificates(&crt_ctx);
-    mbedtls_x509_dn_gets(name_bl1, sizeof(name_bl1), &crt_ctx.issuer);
     mbedtls_x509_crt_free(&crt_ctx);
 
-    printf("Issuer of BL1: %s\n", name_bl1);
     printf("Certificate chain length: %d\n", buffer_offsets[0]);
 
     return 0;
