@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <ra_verifier.h>
+
 #include <tee_client_api.h>
 #include <fTPM.h>
 
@@ -19,9 +21,6 @@ static const char out_filenames[][10] = {
     "bl31.crt",
     "bl32.crt",
     "ekcert.crt"};
-
-#define PEM_BEGIN_CRT           "-----BEGIN CERTIFICATE-----\n"
-#define PEM_END_CRT             "-----END CERTIFICATE-----\n"
 
 static const TEEC_UUID ftpmTEEApp = TA_FTPM_UUID;
 
@@ -66,8 +65,7 @@ static TEEC_Result invoke_ftpm_ta(uint8_t *buffer_crts, size_t buffer_crts_len,
     memset(&operation, 0, sizeof(operation));
 
     /*
-     * Prepare the argument. Pass a value in the first parameter,
-     * receive a value in the second parameter.
+     * Prepare the arguments.
      */
     operation.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_OUTPUT, TEEC_MEMREF_TEMP_OUTPUT,
                                             TEEC_NONE, TEEC_NONE);
@@ -82,7 +80,7 @@ static TEEC_Result invoke_ftpm_ta(uint8_t *buffer_crts, size_t buffer_crts_len,
                                 &operation, &err_origin);
     if (result != TEEC_SUCCESS)
     {
-        printf("TEEC_InvokeCommand failed with code 0x%x origin 0x%x",
+        printf("TEEC_InvokeCommand failed with code 0x%x origin 0x%x\n",
                result, err_origin);
         goto cleanup3;
     }
