@@ -1,4 +1,6 @@
 #include <assert.h>
+#include <err.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -6,10 +8,20 @@
 #include <fTPM.h>
 
 #include <mbedtls/x509_crt.h>
-#include <mbedtls/x509_csr.h>
 #include <mbedtls/oid.h>
 #include <mbedtls/md.h>
 #include <mbedtls/error.h>
+#include <mbedtls/pem.h>
+
+static const char out_filenames[][10] = {
+    "bl1.crt",
+    "bl2.crt",
+    "bl31.crt",
+    "bl32.crt",
+    "ekcert.crt"};
+
+#define PEM_BEGIN_CRT           "-----BEGIN CERTIFICATE-----\n"
+#define PEM_END_CRT             "-----END CERTIFICATE-----\n"
 
 static const TEEC_UUID ftpmTEEApp = TA_FTPM_UUID;
 
@@ -102,7 +114,7 @@ static int parse_buffers(const uint8_t *buffer_crts, const size_t buffer_crts_le
 
     const uint16_t *sizes = &buffer_sizes[1];
     const uint8_t *cur_crt = buffer_crts;
-    
+
     for (int i = 0; i < certificate_count; i++)
     {
         assert(&sizes[i] + sizeof(sizes[0]) < &buffer_sizes[buffer_sizes_len]);
@@ -118,6 +130,34 @@ static int parse_buffers(const uint8_t *buffer_crts, const size_t buffer_crts_le
         }
 
         cur_crt += sizes[i];
+    }
+
+    return 0;
+}
+
+static int write_certificates(mbedtls_x509_crt *crt_ctx)
+{
+    uint8_t file_buffer[2048];
+    size_t olen;
+
+    const int count_available_names = sizeof(out_filenames) / sizeof(out_filenames[0]);
+
+    for (int i = 0; crt_ctx != NULL; crt_ctx = crt_ctx->next, i++)
+    {
+        if (!(i < count_available_names))
+            errx(EXIT_FAILURE, "We try to write more certificates than we have filenames available\ni=%d, Available names count=%d", i, count_available_names);
+
+        mbedtls_pem_write_buffer(PEM_BEGIN_CRT, PEM_END_CRT,
+                                 crt_ctx->raw.p, crt_ctx->raw.len,
+                                 file_buffer, sizeof(file_buffer),
+                                 &olen);
+
+        FILE *pem_file = fopen(out_filenames[i], "wb");
+        // - 1 to trim the null terminator
+        // This ensures the exact same content as the certificate is embedded in the attestation PTA,
+        // and how it is written here.
+        fwrite(file_buffer, 1, olen - 1, pem_file);
+        fclose(pem_file);
     }
 
     return 0;
@@ -145,6 +185,7 @@ int main(void)
     parse_buffers(buffer_crts, sizeof(buffer_crts),
                   buffer_offsets, sizeof(buffer_offsets), &crt_ctx);
 
+    write_certificates(&crt_ctx);
     mbedtls_x509_dn_gets(name_bl1, sizeof(name_bl1), &crt_ctx.issuer);
     mbedtls_x509_crt_free(&crt_ctx);
 
