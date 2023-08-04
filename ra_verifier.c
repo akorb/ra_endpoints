@@ -9,6 +9,8 @@
 #include <tee_client_api.h>
 #include <fTPM.h>
 
+#include <DiceTcbInfo.h>
+
 #include <mbedtls/x509_crt.h>
 #include <mbedtls/oid.h>
 #include <mbedtls/md.h>
@@ -23,6 +25,9 @@ static const char out_filenames[][10] = {
     "ekcert.crt"};
 
 static const TEEC_UUID ftpmTEEApp = TA_FTPM_UUID;
+
+// ASN1 encoded
+static const uint8_t dice_attestation_oid[] = {0x67, 0x81, 0x05, 0x05, 0x04, 0x01};
 
 static TEEC_Result invoke_ftpm_ta(uint8_t *buffer_crts, size_t buffer_crts_len,
                                   uint16_t *buffer_offsets, size_t buffer_offsets_len)
@@ -169,10 +174,91 @@ static int write_certificates(mbedtls_x509_crt *crt_ctx)
     return 0;
 }
 
+static void find_ext_by_oid(const mbedtls_x509_crt *cert, const uint8_t *extension_oid, const size_t oid_len,
+                            uint8_t **ext_addr, int *extension_data_length)
+{
+    // Inspired by https://stackoverflow.com/a/75115264/2050020
+
+    uint8_t *result = NULL;
+    mbedtls_x509_buf buf;
+    mbedtls_asn1_sequence extns;
+    mbedtls_asn1_sequence *next;
+
+    memset(&extns, 0, sizeof(extns));
+    size_t tag_len;
+    buf = cert->v3_ext;
+    *extension_data_length = 0;
+    if (mbedtls_asn1_get_sequence_of(&buf.p, buf.p + buf.len, &extns, MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE))
+    {
+        goto exit;
+    }
+    next = &extns;
+    while (next)
+    {
+        if (mbedtls_asn1_get_tag(&(next->buf.p), next->buf.p + next->buf.len, &tag_len, MBEDTLS_ASN1_OID))
+        {
+            goto exit;
+        }
+        if (tag_len == oid_len && !memcmp(next->buf.p, extension_oid, tag_len))
+        {
+            uint8_t *p = next->buf.p + tag_len;
+            *extension_data_length = next->buf.len - tag_len - 2;
+            result = p;
+            break;
+        }
+        next = next->next;
+    }
+
+exit:
+    mbedtls_asn1_sequence_free(extns.next);
+    *ext_addr = result;
+}
+
+static int parse_attestation_extension_asn1c(uint8_t *addr, int ext_data_len,
+                                             uint8_t *out_buf, size_t out_buf_len)
+{
+    // Skip the first two bytes since this only contains the octet string tag and its containing data length
+    // See https://lapo.it/asn1js/#BDMwMaYvMC0GCWCGSAFlAwQCAQQgTM76aH04vo_hhcC_krKM22noJ-DiOSC-LM9KsroN6WA
+    // for a full example what data can be input here with the `addr` argument
+    addr += 2;
+    ext_data_len -= 2;
+
+    DiceTcbInfo_t *tcbInfo = NULL;
+
+    asn_dec_rval_t rval = ber_decode(0, &asn_DEF_DiceTcbInfo, (void **)&tcbInfo, addr, ext_data_len);
+    if (rval.code != 0)
+    {
+        errx(EXIT_FAILURE, "ber_decode failed, and returned %d.", rval.code);
+    }
+    if (tcbInfo->fwids->list.count != 1)
+    {
+        errx(EXIT_FAILURE, "We expect only one FWID for the time being.");
+    }
+
+    const struct FWID *fwid = tcbInfo->fwids->list.array[0];
+
+    if (fwid->hashAlg.size != MBEDTLS_OID_SIZE(MBEDTLS_OID_DIGEST_ALG_SHA256) ||
+        memcmp(fwid->hashAlg.buf, MBEDTLS_OID_DIGEST_ALG_SHA256, fwid->hashAlg.size) != 0)
+    {
+        errx(EXIT_FAILURE, "We only expect SHA256 values.");
+    }
+
+    if (out_buf_len < fwid->digest.size)
+    {
+        errx(EXIT_FAILURE, "FWID does not fit in given buffer.");
+    }
+
+    memcpy(out_buf, fwid->digest.buf, fwid->digest.size);
+
+    ASN_STRUCT_FREE(asn_DEF_DiceTcbInfo, tcbInfo);
+
+    return 0;
+}
+
 static int print_subjects_of_certificates(mbedtls_x509_crt *crt_ctx, mbedtls_x509_crt *root_crt)
 {
     char subject[50];
-    const char template[] = "Cert [%d]: %s\n";
+    const char template[] = "Cert [%d]: Subject: %s\n";
 
     mbedtls_x509_dn_gets(subject, sizeof(subject), &root_crt->subject);
     printf(template, 0, subject);
@@ -181,6 +267,19 @@ static int print_subjects_of_certificates(mbedtls_x509_crt *crt_ctx, mbedtls_x50
     {
         mbedtls_x509_dn_gets(subject, sizeof(subject), &crt_ctx->subject);
         printf(template, i + 1, subject);
+
+        uint8_t *ext_addr;
+        int ext_data_len;
+        uint8_t fwid[SHA256_LEN];
+        find_ext_by_oid(crt_ctx, dice_attestation_oid, sizeof(dice_attestation_oid), &ext_addr, &ext_data_len);
+        parse_attestation_extension_asn1c(ext_addr, ext_data_len, fwid, sizeof(fwid));
+
+        printf("          FWID: ");
+        for (size_t j = 0; j < SHA256_LEN; j++)
+        {
+            printf("%02X ", fwid[j]);
+        }
+        printf("\n");
     }
 
     return 0;

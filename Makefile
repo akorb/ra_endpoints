@@ -18,6 +18,9 @@ OPTEE_ROOT        ?= ..
 MBEDTLS_PATH      ?= $(OPTEE_ROOT)/mbedtls
 FTPM_PATH         ?= $(OPTEE_ROOT)/ms-tpm-20-ref
 OPTEE_CLIENT_PATH ?= $(OPTEE_ROOT)/optee_client
+ASN1C_GEN_PATH    ?= $(OPTEE_ROOT)/asn1c_generations
+
+include $(ASN1C_GEN_PATH)/Makefile.am.libasncodec
 
 # Macros to detect the targeted architecture (e.g., arm-linux-gnueabihf or
 # aarch64-linux-gnu) and the corresponding bit size (32 or 64).
@@ -33,11 +36,13 @@ srcs := ra_verifier.c
 objs 	:= $(patsubst %.c,$(out-dir)/%.o, $(srcs))
 
 CFLAGS += -I./
-
 CFLAGS += -I$(OPTEE_CLIENT_PATH)/public
 CFLAGS += -I$(FTPM_PATH)/Samples/ARM32-FirmwareTPM/optee_ta/fTPM/include
 CFLAGS += -I$(FTPM_PATH)/TPMCmd/tpm/include
 CFLAGS += -I$(MBEDTLS_PATH)/include
+CFLAGS += -I$(ASN1C_GEN_PATH)
+
+CFLAGS += $(ASN_MODULE_CFLAGS)
 
 CFLAGS += -Wall -Wcast-align -Werror \
 	  -Werror-implicit-function-declaration -Wextra -Wfloat-equal \
@@ -53,7 +58,7 @@ CFLAGS += -Wall -Wcast-align -Werror \
 CFLAGS += -g3
 
 LDFLAGS += -L $(OPTEE_ROOT)/out-br/target/usr/lib/ -lteec
-LDFLAGS += -L $(MBEDTLS_PATH)/library -lmbedx509 -lmbedcrypto -lmbedtls
+LDFLAGS += -L $(MBEDTLS_PATH)/library -lmbedtls -lmbedx509 -lmbedcrypto
 
 .PHONY: all
 all: ra_verifier
@@ -62,13 +67,13 @@ ra_verifier: $(objs)
 	make -C $(MBEDTLS_PATH)/library CC="$(CC)" static
 	@echo	"Cross compile " $(CROSS_COMPILE)
 	@echo "  LD      $(out-dir)/$@"
-	$(CROSS_COMPILE)$(CC) -o $(out-dir)/$@ $+ $(LDFLAGS)
+	$(CC) -o $(out-dir)/$@ $+ $(CFLAGS) $(LDFLAGS) -Wno-suggest-attribute=format $(addprefix $(ASN1C_GEN_PATH)/,$(ASN_MODULE_SRCS))
 
 $(out-dir)/%.o: $(CURDIR)/%.c
 	@echo "Cross compile=" $(CROSS_COMPILE)
 	@echo "CC=" $(CC)
 	@echo '  CC      $<'
-	$(CROSS_COMPILE)$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 RMDIR := rmdir --ignore-fail-on-non-empty
 define rm-build-dirs
@@ -76,11 +81,6 @@ define rm-build-dirs
 	$(q)$(RMDIR) $(out-dir)/ra_verifier 2> /dev/null; true
 	$(q)$(RMDIR) $(out-dir) 2> /dev/null; true
 endef
-
-install:
-	$(echo) '  INSTALL ${DESTDIR}${bindir}'
-	$(q)mkdir -p ${DESTDIR}${bindir}
-	$(q)cp $(out-dir)/ra_verifier/ra_verifier ${DESTDIR}${bindir}
 
 .PHONY: clean
 clean:

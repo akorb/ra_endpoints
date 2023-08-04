@@ -6,6 +6,8 @@
 #define PEM_BEGIN_CRT           "-----BEGIN CERTIFICATE-----\n"
 #define PEM_END_CRT             "-----END CERTIFICATE-----\n"
 
+#define SHA256_LEN 32
+
 static const uint8_t crt_manufacturer[] =
 "-----BEGIN CERTIFICATE-----\n\
 MIIDTDCCAjSgAwIBAgIBATANBgkqhkiG9w0BAQsFADA2MQ8wDQYDVQQDDAZ0aGUg\n\
