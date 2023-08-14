@@ -257,6 +257,7 @@ static int parse_attestation_extension_asn1c(uint8_t *addr, int ext_data_len,
 
 static int print_subjects_of_certificates(mbedtls_x509_crt *crt_ctx, mbedtls_x509_crt *root_crt)
 {
+    unsigned char pubKey[256];
     char subject[50];
     const char template[] = "Cert [%d]: Subject: %s\n";
 
@@ -265,6 +266,14 @@ static int print_subjects_of_certificates(mbedtls_x509_crt *crt_ctx, mbedtls_x50
 
     for (int i = 0; crt_ctx != NULL; crt_ctx = crt_ctx->next, i++)
     {
+        if (crt_ctx->pk.pk_info != mbedtls_pk_info_from_type(MBEDTLS_PK_RSA))
+        {
+            puts("We only support RSA certificates so far.");
+            return -1;
+        }
+
+        mbedtls_mpi_write_binary(&mbedtls_pk_rsa(crt_ctx->pk)->N, pubKey, sizeof(pubKey));
+
         mbedtls_x509_dn_gets(subject, sizeof(subject), &crt_ctx->subject);
         printf(template, i + 1, subject);
 
@@ -279,6 +288,7 @@ static int print_subjects_of_certificates(mbedtls_x509_crt *crt_ctx, mbedtls_x50
         {
             printf("%02X ", fwid[j]);
         }
+        printf("          Subject key: %02X %02X %02X %02X ...\n", pubKey[0], pubKey[1], pubKey[2], pubKey[3]);
         printf("\n");
     }
 
