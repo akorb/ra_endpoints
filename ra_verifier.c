@@ -278,13 +278,16 @@ static int print_subjects_of_certificates(mbedtls_x509_crt *crt_ctx, mbedtls_x50
         find_ext_by_oid(crt_ctx, dice_attestation_oid, sizeof(dice_attestation_oid), &ext_addr, &ext_data_len);
         parse_attestation_extension_asn1c(ext_addr, ext_data_len, fwid, sizeof(fwid));
 
+        // Print FWID
         printf("          FWID: ");
         for (size_t j = 0; j < SHA256_LEN; j++)
         {
             printf("%02X ", fwid[j]);
         }
-        printf("          Subject key: %02X %02X %02X %02X ...\n", pubKey[0], pubKey[1], pubKey[2], pubKey[3]);
         printf("\n");
+
+        // Print Subject Key
+        printf("          Subject key: %02X %02X %02X %02X ...\n", pubKey[0], pubKey[1], pubKey[2], pubKey[3]);
     }
 
     return 0;
@@ -301,11 +304,11 @@ static int verify_chain(mbedtls_x509_crt *chain, mbedtls_x509_crt *root_crt)
     {
         char vrfy_buf[512];
         mbedtls_x509_crt_verify_info(vrfy_buf, sizeof(vrfy_buf), "  ! ", flags);
-        printf("Verification failed. Reason: %s\n", vrfy_buf);
+        printf("Verification of certificate signatures failed. Reason: %s\n", vrfy_buf);
         printf("Error: 0x%04x; flag: %u\n", res, flags);
     }
     else
-        printf("Verification OK\n");
+        printf("Verification of certificate signatures OK\n");
 
     return res;
 }
