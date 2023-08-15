@@ -72,11 +72,6 @@ static TEEC_Result invoke_ftpm_ta(uint8_t *buffer_crts, size_t buffer_crts_len,
     /*
      * Prepare the arguments.
      */
-
-    // TODO: Maybe third output parameter, where we return the count of certificates
-    // I.e., split the count parameter from the 'sizes' parameter
-    // But don't do it know, since maybe we need more Input parameters,
-    // e.g., Nonce, or configuration parameters
     operation.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_OUTPUT, TEEC_MEMREF_TEMP_OUTPUT,
                                             TEEC_NONE, TEEC_NONE);
     operation.params[0].tmpref.buffer = buffer_crts;
