@@ -10,6 +10,7 @@
 #include <fTPM.h>
 
 #include <DiceTcbInfo.h>
+#include "TCIs.h"
 
 #include <mbedtls/x509_crt.h>
 #include <mbedtls/oid.h>
@@ -17,12 +18,13 @@
 #include <mbedtls/error.h>
 #include <mbedtls/pem.h>
 
-static const char out_filenames[][10] = {
-    "bl1.crt",
-    "bl2.crt",
-    "bl31.crt",
-    "bl32.crt",
-    "ekcert.crt"};
+static const chain_t chain_info[] = {
+    CHAIN_ENTRY_WITHOUT_TCI(bl1),
+    CHAIN_ENTRY(bl2),
+    CHAIN_ENTRY(bl31),
+    CHAIN_ENTRY(bl32),
+    CHAIN_ENTRY(ekcert),
+};
 
 static const TEEC_UUID ftpmTEEApp = TA_FTPM_UUID;
 
@@ -131,7 +133,7 @@ static int parse_buffers(const uint8_t *buffer_crts, const size_t buffer_crts_le
         assert(&sizes[i] + sizeof(sizes[0]) < &buffer_sizes[buffer_sizes_len]);
         assert(cur_crt + sizes[i] < &buffer_crts[buffer_crts_len]);
 
-        res = parse_crt_from_buffer(crt_ctx, cur_crt, sizes[i], out_filenames[i]);
+        res = parse_crt_from_buffer(crt_ctx, cur_crt, sizes[i], chain_info[i].cert_filename);
         if (res != 0)
             return res;
 
@@ -146,7 +148,7 @@ static int write_certificates(mbedtls_x509_crt *crt_ctx)
     uint8_t file_buffer[2048];
     size_t olen;
 
-    const int count_available_names = sizeof(out_filenames) / sizeof(out_filenames[0]);
+    const int count_available_names = ARRAY_LEN(chain_info);
 
     for (int i = 0; crt_ctx != NULL; crt_ctx = crt_ctx->next, i++)
     {
@@ -158,7 +160,7 @@ static int write_certificates(mbedtls_x509_crt *crt_ctx)
                                  file_buffer, sizeof(file_buffer),
                                  &olen);
 
-        FILE *pem_file = fopen(out_filenames[i], "wb");
+        FILE *pem_file = fopen(chain_info[i].cert_filename, "wb");
         // - 1 to trim the null terminator
         // This ensures the exact same content as the certificate is embedded in the attestation PTA,
         // and how it is written here.
@@ -209,8 +211,8 @@ exit:
     *ext_addr = result;
 }
 
-static int parse_attestation_extension_asn1c(uint8_t *addr, int ext_data_len,
-                                             uint8_t *out_buf, size_t out_buf_len)
+static int parse_attestation_extension(uint8_t *addr, int ext_data_len,
+                                       uint8_t *out_buf, size_t out_buf_len)
 {
     // Skip the first two bytes since this only contains the octet string tag and its containing data length
     // See https://lapo.it/asn1js/#BDMwMaYvMC0GCWCGSAFlAwQCAQQgTM76aH04vo_hhcC_krKM22noJ-DiOSC-LM9KsroN6WA
@@ -250,50 +252,59 @@ static int parse_attestation_extension_asn1c(uint8_t *addr, int ext_data_len,
     return 0;
 }
 
-static int print_subjects_of_certificates(mbedtls_x509_crt *crt_ctx, mbedtls_x509_crt *root_crt)
+static int print_infos_of_certificates(mbedtls_x509_crt *crt_ctx, mbedtls_x509_crt *root_crt)
 {
-    unsigned char pubKey[256];
-    char subject[50];
-    const char template[] = "Cert [%d]: Subject: %s\n";
+    uint8_t pubKey[256];
+    char subject[64];
+    const char subjectTemplate[] = "Cert [%d]: Subject: %s\n";
+    const char subjectKeyTemplate[] = "          Subject key: %02X %02X %02X %02X ...\n";
 
+    // Print Subject of root certificate
     mbedtls_x509_dn_gets(subject, sizeof(subject), &root_crt->subject);
-    printf(template, 0, subject);
+    printf(subjectTemplate, 0, subject);
+
+    // Print Subject Key of root certificate
+    mbedtls_mpi_write_binary(&mbedtls_pk_rsa(root_crt->pk)->N, pubKey, sizeof(pubKey));
+    printf(subjectKeyTemplate, pubKey[0], pubKey[1], pubKey[2], pubKey[3]);
 
     for (int i = 0; crt_ctx != NULL; crt_ctx = crt_ctx->next, i++)
     {
         if (crt_ctx->pk.pk_info != mbedtls_pk_info_from_type(MBEDTLS_PK_RSA))
         {
-            puts("We only support RSA certificates so far.");
+            printf("We only support RSA certificates so far.\n");
             return -1;
         }
 
-        mbedtls_mpi_write_binary(&mbedtls_pk_rsa(crt_ctx->pk)->N, pubKey, sizeof(pubKey));
-
+        // Print Subject
         mbedtls_x509_dn_gets(subject, sizeof(subject), &crt_ctx->subject);
-        printf(template, i + 1, subject);
+        printf(subjectTemplate, i + 1, subject);
 
+        // Print Subject Key
+        mbedtls_mpi_write_binary(&mbedtls_pk_rsa(crt_ctx->pk)->N, pubKey, sizeof(pubKey));
+        printf(subjectKeyTemplate, pubKey[0], pubKey[1], pubKey[2], pubKey[3]);
+
+        // Print FWID
         uint8_t *ext_addr;
         int ext_data_len;
         uint8_t fwid[SHA256_LEN];
         find_ext_by_oid(crt_ctx, dice_attestation_oid, sizeof(dice_attestation_oid), &ext_addr, &ext_data_len);
-        parse_attestation_extension_asn1c(ext_addr, ext_data_len, fwid, sizeof(fwid));
-
-        // Print FWID
-        printf("          FWID: ");
-        for (size_t j = 0; j < SHA256_LEN; j++)
+        if (ext_addr != NULL)
         {
-            printf("%02X ", fwid[j]);
-        }
-        printf("\n");
+            parse_attestation_extension(ext_addr, ext_data_len, fwid, sizeof(fwid));
 
-        // Print Subject Key
-        printf("          Subject key: %02X %02X %02X %02X ...\n", pubKey[0], pubKey[1], pubKey[2], pubKey[3]);
+            printf("          FWID: ");
+            for (size_t j = 0; j < SHA256_LEN; j++)
+            {
+                printf("%02X ", fwid[j]);
+            }
+            printf("\n");
+        }
     }
 
     return 0;
 }
 
-static int verify_chain(mbedtls_x509_crt *chain, mbedtls_x509_crt *root_crt)
+static int verify_signatures(mbedtls_x509_crt *chain, mbedtls_x509_crt *root_crt)
 {
     // From https://stackoverflow.com/a/72722115/2050020
 
@@ -311,6 +322,32 @@ static int verify_chain(mbedtls_x509_crt *chain, mbedtls_x509_crt *root_crt)
         printf("Verification of certificate signatures OK\n");
 
     return res;
+}
+
+static int verify_tcis(mbedtls_x509_crt *chain)
+{
+    printf("\n");
+    printf("Verification of trustworthiness of software chain (BLn -> fTPM).\n");
+    printf("Note that the TCI of bl2 changes on each compilation.\n");
+    printf("So, you might want to keep it untrusted during development, and set the TCI only once right before deployment.\n");
+    for (int i = 0; chain != NULL; chain = chain->next, i++)
+    {
+        uint8_t *ext_addr;
+        int ext_data_len;
+        uint8_t fwid[SHA256_LEN];
+        find_ext_by_oid(chain, dice_attestation_oid, sizeof(dice_attestation_oid), &ext_addr, &ext_data_len);
+        if (ext_addr != NULL && chain_info[i].expected_tci != NULL)
+        {
+            parse_attestation_extension(ext_addr, ext_data_len, fwid, sizeof(fwid));
+
+            printf("Checking trustworthiness of %-6s...", chain_info[i].name);
+            if (memcmp(fwid, chain_info[i].expected_tci, sizeof(fwid)) == 0)
+                printf(" Trusted\n");
+            else
+                printf(" Untrusted\n");
+        }
+    }
+    return 0;
 }
 
 int main(void)
@@ -339,9 +376,10 @@ int main(void)
     parse_buffers(buffer_crts, sizeof(buffer_crts),
                   buffer_offsets, sizeof(buffer_offsets), &crt_ctx);
 
-    print_subjects_of_certificates(&crt_ctx, &root_crt);
+    print_infos_of_certificates(&crt_ctx, &root_crt);
     write_certificates(&crt_ctx);
-    verify_chain(&crt_ctx, &root_crt);
+    verify_signatures(&crt_ctx, &root_crt);
+    verify_tcis(&crt_ctx);
     mbedtls_x509_crt_free(&crt_ctx);
     mbedtls_x509_crt_free(&root_crt);
 

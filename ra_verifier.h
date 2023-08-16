@@ -3,6 +3,28 @@
 
 #include <stdint.h>
 
+#define ARRAY_LEN(array) (sizeof(array) / sizeof(array[0]))
+
+typedef struct {
+    const char name[8];
+    const char cert_filename[10];
+    const char *expected_tci;
+} chain_t;
+
+#define CHAIN_ENTRY(bl) \
+    { \
+        .name = #bl, \
+        .cert_filename=#bl".crt", \
+        .expected_tci = tci_ ## bl, \
+    }
+
+#define CHAIN_ENTRY_WITHOUT_TCI(bl) \
+    { \
+        .name = #bl, \
+        .cert_filename=#bl".crt", \
+        .expected_tci = NULL, \
+    }
+
 #define PEM_BEGIN_CRT           "-----BEGIN CERTIFICATE-----\n"
 #define PEM_END_CRT             "-----END CERTIFICATE-----\n"
 
@@ -10,24 +32,24 @@
 
 static const uint8_t crt_manufacturer[] =
 "-----BEGIN CERTIFICATE-----\n\
-MIIDTDCCAjSgAwIBAgIBATANBgkqhkiG9w0BAQsFADA2MQ8wDQYDVQQDDAZ0aGUg\n\
-Q04xFTATBgNVBAoMDENvb2wgY29tcGFueTEMMAoGA1UEBhMDR0VSMCAXDTIzMDcy\n\
-NTAwMDAwMFoYDzk5OTkxMjMxMjM1OTU5WjA2MQ8wDQYDVQQDDAZ0aGUgQ04xFTAT\n\
-BgNVBAoMDENvb2wgY29tcGFueTEMMAoGA1UEBhMDR0VSMIIBIjANBgkqhkiG9w0B\n\
-AQEFAAOCAQ8AMIIBCgKCAQEA2HE1cH0yIaOv/8Vlubx7B2hVxIqBA/FZotYuuwYp\n\
-ZzSCUbwUdfMetZotrN/NleaviE4Vs8EB44Wy47cgyLW9AAyfHJeZjujh4W2asURD\n\
-KHco4ndZi21tr5xGY0yzYYzeRCREz1M1JhaBcQqXbjBtVyzAwt4Qucar3rPX9LWl\n\
-LiT31gEyF45ydSWNHwIKr2GCwGglAuiqVn3523ipEa2g/18MImi5vKfTeMLTNpYk\n\
-egEGtzCRGhbJEZ05zS6AyE1sEbiWjjJVupjn0M0GLfOMAQA3ouiRydeEgTOafTfG\n\
-J6Fn/QdqkcCJjBowZ/w0cPKXvAnMQr0P46eZ4LtJsuq1/QIDAQABo2MwYTAPBgNV\n\
-HRMBAf8EBTADAQH/MB0GA1UdDgQWBBQTIRgKPsm///DRXKoi0SXsf/H4xTAfBgNV\n\
-HSMEGDAWgBQTIRgKPsm///DRXKoi0SXsf/H4xTAOBgNVHQ8BAf8EBAMCAgQwDQYJ\n\
-KoZIhvcNAQELBQADggEBAG0dWzKxIaIFrc7x60oPStATMkmJ8YPi9rEKkHHFY7q5\n\
-d8UFWIothbBQrddsMaiVY09qJA1RvuB6p5efXGGbdSGDcYG152NiwLkJ+KhSMft9\n\
-z+qodML9D/4nAnFsWHaafl+GjvkE2axSw477DPbw4le9wj+F4mySBqSmKiD9dQsF\n\
-nH6aJf7t85hqxCcq5pCWCQyMG0whD/wW6DrjBDfUlHA9toJE28fAwHR66LD/FcBC\n\
-6OeTIgyT2DZf5sCODWxmtfOYTr7fBpLAAQ0ywf3LowKqZCrURxr6vgvG3k9S96MF\n\
-nQCUQyBfIqSxyNrdZkyfOJw3FDZBVOcZUDNK4szugFM=\n\
+MIIDWDCCAkCgAwIBAgIBATANBgkqhkiG9w0BAQsFADA8MRUwEwYDVQQDDAxNYW51\n\
+ZmFjdHVyZXIxFTATBgNVBAoMDENvb2wgY29tcGFueTEMMAoGA1UEBhMDR0VSMCAX\n\
+DTIzMDcyNTAwMDAwMFoYDzk5OTkxMjMxMjM1OTU5WjA8MRUwEwYDVQQDDAxNYW51\n\
+ZmFjdHVyZXIxFTATBgNVBAoMDENvb2wgY29tcGFueTEMMAoGA1UEBhMDR0VSMIIB\n\
+IjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmh2aVN2BGu7paDxpZXxUGcwP\n\
+beH7F0K9uZ1rROU7Q0Q2rLZNNctbXP82stpuCG4uQsR1dUbnjXkPRVeo8cc9mJUR\n\
+DZrzFzk0yz1pbzXsszbeV+6c2ENA7nYPeQyVcVnPAL2mSyzY+2+t2UUO0tL6HTSS\n\
+Boc9xoxlECpDs31SxOjn6uZgg0iP26CUszDK1oLv62YEyHTevAKZEjmQS2nXi3xm\n\
+oqtapKPMczzP2gdzwOpJrBOqpur7XVV32U44gX6Y1z8EfGW7WEtv9f0vm//Zd+rS\n\
+PvI483OsqPEt94e5B/a5QiwCOiZjlALGB4uzarl69dVhjcXJAhGA1Re2sIy4JwID\n\
+AQABo2MwYTAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBTrzpN3AKEd61qbfATZ\n\
+3V4M5BDP9DAfBgNVHSMEGDAWgBTrzpN3AKEd61qbfATZ3V4M5BDP9DAOBgNVHQ8B\n\
+Af8EBAMCAgQwDQYJKoZIhvcNAQELBQADggEBAHYw+8wx9WKovMIzwv7xChIBN+ww\n\
+VpXcifKGDL35vnOMeUoiLQH++4is9M+18w+5Vh5PEvZBGMka241uu5PqKAx9/rFl\n\
++jhSeYSFn0Jyz3T/fX7/U+S8iKnekIcKu/7exUL2DaT0gQMqbOXUaE+3xy4FvsHw\n\
+qgXunBlroz8jznlaJvrHecPeJzdRS0btLqSJcYR3sRb6QCLvNsx2zWXMH+Xv8tsX\n\
+YzGwGM6n5wxFc7R0UtrMYjWWArk1yzjPT/D9/IAs0eRTnWPaKIDOmUlRfuW+NLC+\n\
+wKSoNRpzV3PMk+QhNX3JZ75lhO5qHuvda9ivIp44R9SYt6WvoV9rXWLMqys=\n\
 -----END CERTIFICATE-----";
 
 #endif /* RA_VERIFIER_H */
