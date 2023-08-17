@@ -49,6 +49,7 @@ static TEEC_Result invoke_ftpm_ta(uint8_t *buffer_crts, size_t buffer_crts_len,
         &context);
     if (result != TEEC_SUCCESS)
     {
+        printf("TEEC_InitializeContext failed with code 0x%x\n", result);
         goto cleanup1;
     }
     /* ========================================================================
@@ -65,6 +66,8 @@ static TEEC_Result invoke_ftpm_ta(uint8_t *buffer_crts, size_t buffer_crts_len,
         &err_origin);
     if (result != TEEC_SUCCESS)
     {
+        printf("TEEC_OpenSession failed with code 0x%x origin 0x%x\n",
+               result, err_origin);
         goto cleanup2;
     }
 
