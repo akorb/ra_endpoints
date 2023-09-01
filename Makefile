@@ -57,7 +57,7 @@ CFLAGS += -Wall -Wcast-align -Werror \
 
 CFLAGS += -g3
 
-LDFLAGS += -L $(OPTEE_ROOT)/out-br/target/usr/lib/ -lteec
+LDFLAGS += -L $(OPTEE_ROOT)/out-br/per-package/optee_client_ext/target/usr/lib/ -lteec
 LDFLAGS += -L $(MBEDTLS_PATH)/library -lmbedtls -lmbedx509 -lmbedcrypto
 
 .PHONY: all
