@@ -15,6 +15,7 @@
 #include <mbedtls/x509_crt.h>
 #include <mbedtls/oid.h>
 #include <mbedtls/md.h>
+#include <mbedtls/md_internal.h>
 #include <mbedtls/error.h>
 #include <mbedtls/pem.h>
 
@@ -31,8 +32,21 @@ static const TEEC_UUID ftpmTEEApp = TA_FTPM_UUID;
 // ASN1 encoded
 static const uint8_t dice_attestation_oid[] = {0x67, 0x81, 0x05, 0x05, 0x04, 0x01};
 
+static mbedtls_x509_crt * GetEkCert(mbedtls_x509_crt *crt_ctx)
+{
+    // The EK certificate is the last certificate in the chain
+    mbedtls_x509_crt *next = crt_ctx;
+    while (next->next)
+    {
+        next = next->next;
+    }
+    return next;
+}
+
 static TEEC_Result invoke_ftpm_ta(uint8_t *buffer_crts, size_t buffer_crts_len,
-                                  uint16_t *buffer_offsets, size_t buffer_offsets_len)
+                                  uint16_t *buffer_offsets, size_t buffer_offsets_len,
+                                  uint8_t *buffer_signature, size_t buffer_signature_size,
+                                  uint8_t *buffer_to_sign_data, size_t buffer_to_sign_data_size)
 {
     /* Allocate TEE Client structures on the stack. */
     TEEC_Context context;
@@ -78,12 +92,18 @@ static TEEC_Result invoke_ftpm_ta(uint8_t *buffer_crts, size_t buffer_crts_len,
      * Prepare the arguments.
      */
     operation.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_OUTPUT, TEEC_MEMREF_TEMP_OUTPUT,
-                                            TEEC_NONE, TEEC_NONE);
+                                            TEEC_MEMREF_TEMP_OUTPUT, TEEC_MEMREF_TEMP_INPUT);
     operation.params[0].tmpref.buffer = buffer_crts;
     operation.params[0].tmpref.size = buffer_crts_len;
 
     operation.params[1].tmpref.buffer = buffer_offsets;
     operation.params[1].tmpref.size = buffer_offsets_len;
+
+    operation.params[2].tmpref.buffer = buffer_signature;
+    operation.params[2].tmpref.size = buffer_signature_size;
+
+    operation.params[3].tmpref.buffer = buffer_to_sign_data;
+    operation.params[3].tmpref.size = buffer_to_sign_data_size;
 
     printf("Invoking fTPM TA to attest itself... \n");
     result = TEEC_InvokeCommand(&session, TA_FTPM_ATTEST,
@@ -353,6 +373,38 @@ static int verify_tcis(mbedtls_x509_crt *chain)
     return 0;
 }
 
+static void verifyDataSignature(uint8_t *data, size_t dataSize, uint8_t *signature, size_t signatureSize, mbedtls_pk_context *pk_ctx)
+{
+    // Get the message digest info structure for SHA256
+    const mbedtls_md_info_t *mdinfo = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+    unsigned char *md = malloc(mdinfo->size);
+    // Calculate the message digest for the data
+    mbedtls_md(mdinfo, data, dataSize, md);
+
+    printf("First four bytes of hash: %02x %02x %02x %02x\n", md[0], md[1], md[2], md[3]);
+
+    // Now verify the signature for the given hash of the data
+    int st = mbedtls_pk_verify(pk_ctx, 
+                               mdinfo->type, md, mdinfo->size,
+                               signature, signatureSize);
+
+    // mbedtls_pk_rsassa_pss_options options;
+    // options.mgf1_hash_id = MBEDTLS_MD_SHA256;
+    // options.expected_salt_len = 0;
+    // int st = mbedtls_pk_verify_ext(MBEDTLS_PK_RSASSA_PSS, &options, pk_ctx, 
+    //                         mdinfo->type, md, mdinfo->size,
+    //                         signature, signatureSize);
+    if (st != 0) {
+        // Signature invalid!
+        printf("Signature invalid!\n");
+    } else {
+        // Signature valid
+        printf("Signature valid!\n");
+    }
+
+    free(md);
+}
+
 int main(void)
 {
     // The certificates are stored here in DER format
@@ -373,12 +425,28 @@ int main(void)
     if (res != 0)
         return res;
 
-    invoke_ftpm_ta(buffer_crts, sizeof(buffer_crts),
-                   buffer_offsets, sizeof(buffer_offsets));
 
+    uint8_t signature[256] = {0xde, 0xad, 0xbe, 0xef};
+    uint8_t nonce[] = "Hello world";
+    invoke_ftpm_ta(buffer_crts, sizeof(buffer_crts),
+                   buffer_offsets, sizeof(buffer_offsets),
+                   signature, sizeof(signature),
+                   nonce, sizeof(nonce));
+
+    
     parse_buffers(buffer_crts, sizeof(buffer_crts),
                   buffer_offsets, sizeof(buffer_offsets), &crt_ctx);
 
+    unsigned char *ekCert = GetEkCert(&crt_ctx)->pk_raw.p;
+    printf("EK public key:\n");
+    for (size_t x = 0; x < GetEkCert(&crt_ctx)->pk_raw.len; x += 8)
+    {
+        printf("%08lx: %2.2x,%2.2x,%2.2x,%2.2x,%2.2x,%2.2x,%2.2x,%2.2x\n", x,
+                    ekCert[x + 0], ekCert[x + 1], ekCert[x + 2], ekCert[x + 3],
+                    ekCert[x + 4], ekCert[x + 5], ekCert[x + 6], ekCert[x + 7]);
+    }
+
+    verifyDataSignature(nonce, sizeof(nonce), signature, sizeof(signature), &GetEkCert(&crt_ctx)->pk);
     print_infos_of_certificates(&crt_ctx, &root_crt);
     write_certificates(&crt_ctx);
     verify_signatures(&crt_ctx, &root_crt);
