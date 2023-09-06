@@ -381,19 +381,13 @@ static void verifyDataSignature(uint8_t *data, size_t dataSize, uint8_t *signatu
     // Calculate the message digest for the data
     mbedtls_md(mdinfo, data, dataSize, md);
 
-    printf("First four bytes of hash: %02x %02x %02x %02x\n", md[0], md[1], md[2], md[3]);
-
-    // Now verify the signature for the given hash of the data
-    int st = mbedtls_pk_verify(pk_ctx, 
-                               mdinfo->type, md, mdinfo->size,
-                               signature, signatureSize);
-
-    // mbedtls_pk_rsassa_pss_options options;
-    // options.mgf1_hash_id = MBEDTLS_MD_SHA256;
-    // options.expected_salt_len = 0;
-    // int st = mbedtls_pk_verify_ext(MBEDTLS_PK_RSASSA_PSS, &options, pk_ctx, 
-    //                         mdinfo->type, md, mdinfo->size,
-    //                         signature, signatureSize);
+    // Has to match the hash algorithm we specify in the signing process within the fTPM!
+    mbedtls_pk_rsassa_pss_options options;
+    options.mgf1_hash_id = MBEDTLS_MD_SHA256;
+    options.expected_salt_len = MBEDTLS_RSA_SALT_LEN_ANY;
+    int st = mbedtls_pk_verify_ext(MBEDTLS_PK_RSASSA_PSS, &options, pk_ctx, 
+                            mdinfo->type, md, mdinfo->size,
+                            signature, signatureSize);
     if (st != 0) {
         // Signature invalid!
         printf("Signature invalid!\n");
@@ -432,24 +426,14 @@ int main(void)
                    buffer_offsets, sizeof(buffer_offsets),
                    signature, sizeof(signature),
                    nonce, sizeof(nonce));
-
     
     parse_buffers(buffer_crts, sizeof(buffer_crts),
                   buffer_offsets, sizeof(buffer_offsets), &crt_ctx);
 
-    unsigned char *ekCert = GetEkCert(&crt_ctx)->pk_raw.p;
-    printf("EK public key:\n");
-    for (size_t x = 0; x < GetEkCert(&crt_ctx)->pk_raw.len; x += 8)
-    {
-        printf("%08lx: %2.2x,%2.2x,%2.2x,%2.2x,%2.2x,%2.2x,%2.2x,%2.2x\n", x,
-                    ekCert[x + 0], ekCert[x + 1], ekCert[x + 2], ekCert[x + 3],
-                    ekCert[x + 4], ekCert[x + 5], ekCert[x + 6], ekCert[x + 7]);
-    }
-
-    verifyDataSignature(nonce, sizeof(nonce), signature, sizeof(signature), &GetEkCert(&crt_ctx)->pk);
     print_infos_of_certificates(&crt_ctx, &root_crt);
     write_certificates(&crt_ctx);
     verify_signatures(&crt_ctx, &root_crt);
+    verifyDataSignature(nonce, sizeof(nonce), signature, sizeof(signature), &GetEkCert(&crt_ctx)->pk);
     verify_tcis(&crt_ctx);
     mbedtls_x509_crt_free(&crt_ctx);
     mbedtls_x509_crt_free(&root_crt);
