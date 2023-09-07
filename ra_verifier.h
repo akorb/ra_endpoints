@@ -7,30 +7,34 @@
 
 typedef struct {
     const char name[8];
-    const char cert_filename[10];
-    const char *expected_tci;
+    const char certFilename[10];
+    const char *expectedTci;
 } chain_t;
 
 #define CHAIN_ENTRY(bl) \
     { \
         .name = #bl, \
-        .cert_filename=#bl".crt", \
-        .expected_tci = tci_ ## bl, \
+        .certFilename=#bl".crt", \
+        .expectedTci = tci_ ## bl, \
     }
 
 #define CHAIN_ENTRY_WITHOUT_TCI(bl) \
     { \
         .name = #bl, \
-        .cert_filename=#bl".crt", \
-        .expected_tci = NULL, \
+        .certFilename=#bl".crt", \
+        .expectedTci = NULL, \
     }
 
 #define PEM_BEGIN_CRT           "-----BEGIN CERTIFICATE-----\n"
 #define PEM_END_CRT             "-----END CERTIFICATE-----\n"
 
-#define SHA256_LEN 32
+#define SHA256_LEN (256 / 8)
 
-static const uint8_t crt_manufacturer[] =
+/**
+ * This is the certificiate of the manufacturer which needs to be inherently trusted
+ * and therefore, acts as the root of trust for the certificate chain.
+ */
+static const uint8_t rootCrtPem[] =
 "-----BEGIN CERTIFICATE-----\n\
 MIIDWDCCAkCgAwIBAgIBATANBgkqhkiG9w0BAQsFADA8MRUwEwYDVQQDDAxNYW51\n\
 ZmFjdHVyZXIxFTATBgNVBAoMDENvb2wgY29tcGFueTEMMAoGA1UEBhMDR0VSMCAX\n\

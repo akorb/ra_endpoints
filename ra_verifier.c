@@ -19,7 +19,7 @@
 #include <mbedtls/error.h>
 #include <mbedtls/pem.h>
 
-static const chain_t chain_info[] = {
+static const chain_t chainInfo[] = {
     CHAIN_ENTRY_WITHOUT_TCI(bl1),
     CHAIN_ENTRY(bl2),
     CHAIN_ENTRY(bl31),
@@ -30,30 +30,38 @@ static const chain_t chain_info[] = {
 static const TEEC_UUID ftpmTEEApp = TA_FTPM_UUID;
 
 // ASN1 encoded
-static const uint8_t dice_attestation_oid[] = {0x67, 0x81, 0x05, 0x05, 0x04, 0x01};
+static const uint8_t diceAttestationOid[] = {0x67, 0x81, 0x05, 0x05, 0x04, 0x01};
 
-static mbedtls_x509_crt * GetEkCert(mbedtls_x509_crt *crt_ctx)
+static mbedtls_x509_crt *GetEkCert(mbedtls_x509_crt *crtChain)
 {
     // The EK certificate is the last certificate in the chain
-    mbedtls_x509_crt *next = crt_ctx;
-    while (next->next)
+    mbedtls_x509_crt *crt = crtChain;
+    while (crt->next)
     {
-        next = next->next;
+        crt = crt->next;
     }
-    return next;
+    return crt;
 }
 
-static TEEC_Result invoke_ftpm_ta(uint8_t *buffer_crts, size_t buffer_crts_len,
-                                  uint16_t *buffer_offsets, size_t buffer_offsets_len,
-                                  uint8_t *buffer_signature, size_t buffer_signature_size,
-                                  uint8_t *buffer_to_sign_data, size_t buffer_to_sign_data_size)
+static TEEC_Result invoke_ftpm_ta(uint8_t *bufferCrts, size_t bufferCrtsLen,
+                                  uint16_t *crtSizes, size_t crtSizesSize,
+                                  uint8_t *bufferSignature, size_t bufferSignatureSize,
+                                  uint8_t *bufferToSignData, size_t bufferToSignDataSize)
 {
     /* Allocate TEE Client structures on the stack. */
     TEEC_Context context;
     TEEC_Session session;
     TEEC_Operation operation;
     TEEC_Result result;
-    uint32_t err_origin;
+
+    /**
+     * From the TEE Client API Specification:
+     * 1: within the TEE Client API implementation
+     * 2: within the underlying communications stack linking the rich OS with the TEE
+     * 3: within the common TEE code
+     * 4: within the Trusted Application code
+     */
+    uint32_t errOrigin;
 
     /* ========================================================================
     [1] Connect to TEE
@@ -77,11 +85,11 @@ static TEEC_Result invoke_ftpm_ta(uint8_t *buffer_crts, size_t buffer_crts_len,
         TEEC_LOGIN_PUBLIC,
         NULL, /* No connection data needed for TEEC_LOGIN_PUBLIC. */
         NULL, /* No payload, and do not want cancellation. */
-        &err_origin);
+        &errOrigin);
     if (result != TEEC_SUCCESS)
     {
         printf("TEEC_OpenSession failed with code 0x%x origin 0x%x\n",
-               result, err_origin);
+               result, errOrigin);
         goto cleanup2;
     }
 
@@ -93,25 +101,25 @@ static TEEC_Result invoke_ftpm_ta(uint8_t *buffer_crts, size_t buffer_crts_len,
      */
     operation.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_OUTPUT, TEEC_MEMREF_TEMP_OUTPUT,
                                             TEEC_MEMREF_TEMP_OUTPUT, TEEC_MEMREF_TEMP_INPUT);
-    operation.params[0].tmpref.buffer = buffer_crts;
-    operation.params[0].tmpref.size = buffer_crts_len;
+    operation.params[0].tmpref.buffer = bufferCrts;
+    operation.params[0].tmpref.size = bufferCrtsLen;
 
-    operation.params[1].tmpref.buffer = buffer_offsets;
-    operation.params[1].tmpref.size = buffer_offsets_len;
+    operation.params[1].tmpref.buffer = crtSizes;
+    operation.params[1].tmpref.size = crtSizesSize;
 
-    operation.params[2].tmpref.buffer = buffer_signature;
-    operation.params[2].tmpref.size = buffer_signature_size;
+    operation.params[2].tmpref.buffer = bufferSignature;
+    operation.params[2].tmpref.size = bufferSignatureSize;
 
-    operation.params[3].tmpref.buffer = buffer_to_sign_data;
-    operation.params[3].tmpref.size = buffer_to_sign_data_size;
+    operation.params[3].tmpref.buffer = bufferToSignData;
+    operation.params[3].tmpref.size = bufferToSignDataSize;
 
     printf("Invoking fTPM TA to attest itself... \n");
     result = TEEC_InvokeCommand(&session, TA_FTPM_ATTEST,
-                                &operation, &err_origin);
+                                &operation, &errOrigin);
     if (result != TEEC_SUCCESS)
     {
         printf("TEEC_InvokeCommand failed with code 0x%x origin 0x%x\n",
-               result, err_origin);
+               result, errOrigin);
         goto cleanup3;
     }
 
@@ -128,74 +136,74 @@ cleanup1:
     return result;
 }
 
-static int parse_crt_from_buffer(mbedtls_x509_crt *crt_ctx, const uint8_t *crt_buf, const size_t crt_len, const char *cert_name)
+static int parseCrtFromBuffer(mbedtls_x509_crt *crt, const uint8_t *inBuf, const size_t inBufSize, const char *certName)
 {
-    int res = mbedtls_x509_crt_parse(crt_ctx, crt_buf, crt_len);
+    int res = mbedtls_x509_crt_parse(crt, inBuf, inBufSize);
     if (res != 0)
     {
-        char error_buf[256];
-        mbedtls_strerror(res, error_buf, 256);
+        char errorBuf[256];
+        mbedtls_strerror(res, errorBuf, sizeof(errorBuf));
         printf(" parsing %s failed\n  !  mbedtls_x509_crt_parse returned -0x%x - %s\n",
-               cert_name, (unsigned int)-res, error_buf);
+               certName, (unsigned int)-res, errorBuf);
     }
     return res;
 }
 
-static int parse_buffers(const uint8_t *buffer_crts, const size_t buffer_crts_len,
-                         const uint16_t *buffer_sizes, const size_t buffer_sizes_len,
-                         mbedtls_x509_crt *crt_ctx)
+static int parseBuffers(const uint8_t *bufferCrts, const size_t bufferCrtsSize,
+                        const uint16_t *bufferSizes, const size_t bufferSizesSize,
+                        mbedtls_x509_crt *startCrt)
 {
     int res;
-    int certificate_count = buffer_sizes[0];
+    int certificateCount = bufferSizes[0];
 
-    const uint16_t *sizes = &buffer_sizes[1];
-    const uint8_t *cur_crt = buffer_crts;
+    const uint16_t *sizes = &bufferSizes[1];
+    const uint8_t *curCrt = bufferCrts;
 
-    for (int i = 0; i < certificate_count; i++)
+    for (int i = 0; i < certificateCount; i++)
     {
-        assert(&sizes[i] + sizeof(sizes[0]) < &buffer_sizes[buffer_sizes_len]);
-        assert(cur_crt + sizes[i] < &buffer_crts[buffer_crts_len]);
+        assert(&sizes[i] + sizeof(sizes[0]) < &bufferSizes[bufferSizesSize]);
+        assert(curCrt + sizes[i] < &bufferCrts[bufferCrtsSize]);
 
-        res = parse_crt_from_buffer(crt_ctx, cur_crt, sizes[i], chain_info[i].cert_filename);
+        res = parseCrtFromBuffer(startCrt, curCrt, sizes[i], chainInfo[i].certFilename);
         if (res != 0)
             return res;
 
-        cur_crt += sizes[i];
+        curCrt += sizes[i];
     }
 
     return 0;
 }
 
-static int write_certificates(mbedtls_x509_crt *crt_ctx)
+static int writeCertificateChain(mbedtls_x509_crt *crtChain)
 {
-    uint8_t file_buffer[2048];
+    uint8_t fileBuffer[2048];
     size_t olen;
 
-    const int count_available_names = ARRAY_LEN(chain_info);
+    const int availableNamesCount = ARRAY_LEN(chainInfo);
 
-    for (int i = 0; crt_ctx != NULL; crt_ctx = crt_ctx->next, i++)
+    for (int i = 0; crtChain != NULL; crtChain = crtChain->next, i++)
     {
-        if (!(i < count_available_names))
-            errx(EXIT_FAILURE, "We try to write more certificates than we have filenames available\ni=%d, Available names count=%d", i, count_available_names);
+        if (!(i < availableNamesCount))
+            errx(EXIT_FAILURE, "We try to write more certificates than we have filenames available\ni=%d, Available names count=%d", i, availableNamesCount);
 
         mbedtls_pem_write_buffer(PEM_BEGIN_CRT, PEM_END_CRT,
-                                 crt_ctx->raw.p, crt_ctx->raw.len,
-                                 file_buffer, sizeof(file_buffer),
+                                 crtChain->raw.p, crtChain->raw.len,
+                                 fileBuffer, sizeof(fileBuffer),
                                  &olen);
 
-        FILE *pem_file = fopen(chain_info[i].cert_filename, "wb");
+        FILE *pemFile = fopen(chainInfo[i].certFilename, "wb");
         // - 1 to trim the null terminator
         // This ensures the exact same content as the certificate is embedded in the attestation PTA,
         // and how it is written here.
-        fwrite(file_buffer, 1, olen - 1, pem_file);
-        fclose(pem_file);
+        fwrite(fileBuffer, 1, olen - 1, pemFile);
+        fclose(pemFile);
     }
 
     return 0;
 }
 
-static void find_ext_by_oid(const mbedtls_x509_crt *cert, const uint8_t *extension_oid, const size_t oid_len,
-                            uint8_t **ext_addr, int *extension_data_length)
+static void findX509ExtByOid(const mbedtls_x509_crt *cert, const uint8_t *extensionOid, const size_t oidSize,
+                             uint8_t **extAddr, int *extDataSize)
 {
     // Inspired by https://stackoverflow.com/a/75115264/2050020
 
@@ -205,9 +213,9 @@ static void find_ext_by_oid(const mbedtls_x509_crt *cert, const uint8_t *extensi
     mbedtls_asn1_sequence *next;
 
     memset(&extns, 0, sizeof(extns));
-    size_t tag_len;
+    size_t tagLen;
     buf = cert->v3_ext;
-    *extension_data_length = 0;
+    *extDataSize = 0;
     if (mbedtls_asn1_get_sequence_of(&buf.p, buf.p + buf.len, &extns, MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE))
     {
         goto exit;
@@ -215,14 +223,14 @@ static void find_ext_by_oid(const mbedtls_x509_crt *cert, const uint8_t *extensi
     next = &extns;
     while (next)
     {
-        if (mbedtls_asn1_get_tag(&(next->buf.p), next->buf.p + next->buf.len, &tag_len, MBEDTLS_ASN1_OID))
+        if (mbedtls_asn1_get_tag(&(next->buf.p), next->buf.p + next->buf.len, &tagLen, MBEDTLS_ASN1_OID))
         {
             goto exit;
         }
-        if (tag_len == oid_len && !memcmp(next->buf.p, extension_oid, tag_len))
+        if (tagLen == oidSize && !memcmp(next->buf.p, extensionOid, tagLen))
         {
-            uint8_t *p = next->buf.p + tag_len;
-            *extension_data_length = next->buf.len - tag_len - 2;
+            uint8_t *p = next->buf.p + tagLen;
+            *extDataSize = next->buf.len - tagLen - 2;
             result = p;
             break;
         }
@@ -231,21 +239,21 @@ static void find_ext_by_oid(const mbedtls_x509_crt *cert, const uint8_t *extensi
 
 exit:
     mbedtls_asn1_sequence_free(extns.next);
-    *ext_addr = result;
+    *extAddr = result;
 }
 
-static int parse_attestation_extension(uint8_t *addr, int ext_data_len,
-                                       uint8_t *out_buf, size_t out_buf_len)
+static int parseAttestationExtension(uint8_t *addr, int extDataSize,
+                                     uint8_t *outBuf, size_t outBufSize)
 {
     // Skip the first two bytes since this only contains the octet string tag and its containing data length
     // See https://lapo.it/asn1js/#BDMwMaYvMC0GCWCGSAFlAwQCAQQgTM76aH04vo_hhcC_krKM22noJ-DiOSC-LM9KsroN6WA
     // for a full example what data can be input here with the `addr` argument
     addr += 2;
-    ext_data_len -= 2;
+    extDataSize -= 2;
 
     DiceTcbInfo_t *tcbInfo = NULL;
 
-    asn_dec_rval_t rval = ber_decode(0, &asn_DEF_DiceTcbInfo, (void **)&tcbInfo, addr, ext_data_len);
+    asn_dec_rval_t rval = ber_decode(0, &asn_DEF_DiceTcbInfo, (void **)&tcbInfo, addr, extDataSize);
     if (rval.code != 0)
     {
         errx(EXIT_FAILURE, "ber_decode failed, and returned %d.", rval.code);
@@ -263,57 +271,59 @@ static int parse_attestation_extension(uint8_t *addr, int ext_data_len,
         errx(EXIT_FAILURE, "We only expect SHA256 values.");
     }
 
-    if (out_buf_len < fwid->digest.size)
+    if (outBufSize < fwid->digest.size)
     {
         errx(EXIT_FAILURE, "FWID does not fit in given buffer.");
     }
 
-    memcpy(out_buf, fwid->digest.buf, fwid->digest.size);
+    memcpy(outBuf, fwid->digest.buf, fwid->digest.size);
 
     ASN_STRUCT_FREE(asn_DEF_DiceTcbInfo, tcbInfo);
 
     return 0;
 }
 
-static int print_infos_of_certificates(mbedtls_x509_crt *crt_ctx, mbedtls_x509_crt *root_crt)
+static int printInfosOfCertificateChain(mbedtls_x509_crt *crtChain, mbedtls_x509_crt *crtRoot)
 {
     uint8_t pubKey[256];
     char subject[64];
     const char subjectTemplate[] = "Cert [%d]: Subject: %s\n";
     const char subjectKeyTemplate[] = "          Subject key: %02X %02X %02X %02X ...\n";
 
+    // Handle root certificate separately because it doesn't have a TCI to print
+
     // Print Subject of root certificate
-    mbedtls_x509_dn_gets(subject, sizeof(subject), &root_crt->subject);
+    mbedtls_x509_dn_gets(subject, sizeof(subject), &crtRoot->subject);
     printf(subjectTemplate, 0, subject);
 
     // Print Subject Key of root certificate
-    mbedtls_mpi_write_binary(&mbedtls_pk_rsa(root_crt->pk)->N, pubKey, sizeof(pubKey));
+    mbedtls_mpi_write_binary(&mbedtls_pk_rsa(crtRoot->pk)->N, pubKey, sizeof(pubKey));
     printf(subjectKeyTemplate, pubKey[0], pubKey[1], pubKey[2], pubKey[3]);
 
-    for (int i = 0; crt_ctx != NULL; crt_ctx = crt_ctx->next, i++)
+    for (int i = 0; crtChain != NULL; crtChain = crtChain->next, i++)
     {
-        if (crt_ctx->pk.pk_info != mbedtls_pk_info_from_type(MBEDTLS_PK_RSA))
+        if (crtChain->pk.pk_info != mbedtls_pk_info_from_type(MBEDTLS_PK_RSA))
         {
             printf("We only support RSA certificates so far.\n");
             return -1;
         }
 
         // Print Subject
-        mbedtls_x509_dn_gets(subject, sizeof(subject), &crt_ctx->subject);
+        mbedtls_x509_dn_gets(subject, sizeof(subject), &crtChain->subject);
         printf(subjectTemplate, i + 1, subject);
 
         // Print Subject Key
-        mbedtls_mpi_write_binary(&mbedtls_pk_rsa(crt_ctx->pk)->N, pubKey, sizeof(pubKey));
+        mbedtls_mpi_write_binary(&mbedtls_pk_rsa(crtChain->pk)->N, pubKey, sizeof(pubKey));
         printf(subjectKeyTemplate, pubKey[0], pubKey[1], pubKey[2], pubKey[3]);
 
         // Print FWID
-        uint8_t *ext_addr;
-        int ext_data_len;
+        uint8_t *extAddr;
+        int extDataLen;
         uint8_t fwid[SHA256_LEN];
-        find_ext_by_oid(crt_ctx, dice_attestation_oid, sizeof(dice_attestation_oid), &ext_addr, &ext_data_len);
-        if (ext_addr != NULL)
+        findX509ExtByOid(crtChain, diceAttestationOid, sizeof(diceAttestationOid), &extAddr, &extDataLen);
+        if (extAddr != NULL)
         {
-            parse_attestation_extension(ext_addr, ext_data_len, fwid, sizeof(fwid));
+            parseAttestationExtension(extAddr, extDataLen, fwid, sizeof(fwid));
 
             printf("          FWID: ");
             for (size_t j = 0; j < SHA256_LEN; j++)
@@ -327,18 +337,18 @@ static int print_infos_of_certificates(mbedtls_x509_crt *crt_ctx, mbedtls_x509_c
     return 0;
 }
 
-static int verify_signatures(mbedtls_x509_crt *chain, mbedtls_x509_crt *root_crt)
+static int verifyCertificateChainSignatures(mbedtls_x509_crt *crtChain, mbedtls_x509_crt *crtRoot)
 {
     // From https://stackoverflow.com/a/72722115/2050020
 
     int res;
     uint32_t flags = 0;
-    if ((res = mbedtls_x509_crt_verify(chain, root_crt, NULL, NULL, &flags,
+    if ((res = mbedtls_x509_crt_verify(crtChain, crtRoot, NULL, NULL, &flags,
                                        NULL, NULL)) != 0)
     {
-        char vrfy_buf[512];
-        mbedtls_x509_crt_verify_info(vrfy_buf, sizeof(vrfy_buf), "  ! ", flags);
-        printf("Verification of certificate signatures failed. Reason: %s\n", vrfy_buf);
+        char verifyBuf[512];
+        mbedtls_x509_crt_verify_info(verifyBuf, sizeof(verifyBuf), "  ! ", flags);
+        printf("Verification of certificate signatures failed. Reason: %s\n", verifyBuf);
         printf("Error: 0x%04x; flag: %u\n", res, flags);
     }
     else
@@ -347,24 +357,24 @@ static int verify_signatures(mbedtls_x509_crt *chain, mbedtls_x509_crt *root_crt
     return res;
 }
 
-static int verify_tcis(mbedtls_x509_crt *chain)
+static int verifyTcis(mbedtls_x509_crt *crtChain)
 {
     printf("\n");
     printf("Verification of trustworthiness of software chain (BLn -> fTPM).\n");
     printf("Note that the TCI of bl2 changes on each compilation.\n");
     printf("So, you might want to keep it untrusted during development, and set the TCI only once right before deployment.\n");
-    for (int i = 0; chain != NULL; chain = chain->next, i++)
+    for (int i = 0; crtChain != NULL; crtChain = crtChain->next, i++)
     {
-        uint8_t *ext_addr;
-        int ext_data_len;
+        uint8_t *extAddr;
+        int extDataLen;
         uint8_t fwid[SHA256_LEN];
-        find_ext_by_oid(chain, dice_attestation_oid, sizeof(dice_attestation_oid), &ext_addr, &ext_data_len);
-        if (ext_addr != NULL && chain_info[i].expected_tci != NULL)
+        findX509ExtByOid(crtChain, diceAttestationOid, sizeof(diceAttestationOid), &extAddr, &extDataLen);
+        if (extAddr != NULL && chainInfo[i].expectedTci != NULL)
         {
-            parse_attestation_extension(ext_addr, ext_data_len, fwid, sizeof(fwid));
+            parseAttestationExtension(extAddr, extDataLen, fwid, sizeof(fwid));
 
-            printf("Checking trustworthiness of %-6s...", chain_info[i].name);
-            if (memcmp(fwid, chain_info[i].expected_tci, sizeof(fwid)) == 0)
+            printf("Checking trustworthiness of %-6s...", chainInfo[i].name);
+            if (memcmp(fwid, chainInfo[i].expectedTci, sizeof(fwid)) == 0)
                 printf(" Trusted\n");
             else
                 printf(" Untrusted\n");
@@ -373,7 +383,7 @@ static int verify_tcis(mbedtls_x509_crt *chain)
     return 0;
 }
 
-static void verifyDataSignature(uint8_t *data, size_t dataSize, uint8_t *signature, size_t signatureSize, mbedtls_pk_context *pk_ctx)
+static void verifyDataSignature(uint8_t *data, size_t dataSize, uint8_t *signature, size_t signatureSize, mbedtls_pk_context *pk)
 {
     // Get the message digest info structure for SHA256
     const mbedtls_md_info_t *mdinfo = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
@@ -385,13 +395,16 @@ static void verifyDataSignature(uint8_t *data, size_t dataSize, uint8_t *signatu
     mbedtls_pk_rsassa_pss_options options;
     options.mgf1_hash_id = MBEDTLS_MD_SHA256;
     options.expected_salt_len = MBEDTLS_RSA_SALT_LEN_ANY;
-    int st = mbedtls_pk_verify_ext(MBEDTLS_PK_RSASSA_PSS, &options, pk_ctx, 
-                            mdinfo->type, md, mdinfo->size,
-                            signature, signatureSize);
-    if (st != 0) {
+    int st = mbedtls_pk_verify_ext(MBEDTLS_PK_RSASSA_PSS, &options, pk,
+                                   mdinfo->type, md, mdinfo->size,
+                                   signature, signatureSize);
+    if (st != 0)
+    {
         // Signature invalid!
         printf("Signature invalid!\n");
-    } else {
+    }
+    else
+    {
         // Signature valid
         printf("Signature valid!\n");
     }
@@ -405,38 +418,37 @@ int main(void)
     // For our certificates, they are always a bit smaller than 1000 bytes.
     // We expect a certificate chain of length 5.
     // So, give a 5 * 1000 bytes buffer
-    uint8_t buffer_crts[5000];
+    uint8_t bufferCrts[5000];
 
     // first element is length of chain
     // Array size must be at least length of chain + 1
-    uint16_t buffer_offsets[8];
+    uint16_t bufferSizes[8];
 
-    mbedtls_x509_crt crt_ctx, root_crt;
-    mbedtls_x509_crt_init(&crt_ctx);
-    mbedtls_x509_crt_init(&root_crt);
+    mbedtls_x509_crt crtChain, crtRoot;
+    mbedtls_x509_crt_init(&crtChain);
+    mbedtls_x509_crt_init(&crtRoot);
 
-    int res = parse_crt_from_buffer(&root_crt, crt_manufacturer, sizeof(crt_manufacturer), "crt_manufacturer");
+    int res = parseCrtFromBuffer(&crtRoot, rootCrtPem, sizeof(rootCrtPem), "rootCrtPem");
     if (res != 0)
         return res;
 
-
-    uint8_t signature[256] = {0xde, 0xad, 0xbe, 0xef};
+    uint8_t signature[256];
     uint8_t nonce[] = "Hello world";
-    invoke_ftpm_ta(buffer_crts, sizeof(buffer_crts),
-                   buffer_offsets, sizeof(buffer_offsets),
+    invoke_ftpm_ta(bufferCrts, sizeof(bufferCrts),
+                   bufferSizes, sizeof(bufferSizes),
                    signature, sizeof(signature),
                    nonce, sizeof(nonce));
-    
-    parse_buffers(buffer_crts, sizeof(buffer_crts),
-                  buffer_offsets, sizeof(buffer_offsets), &crt_ctx);
 
-    print_infos_of_certificates(&crt_ctx, &root_crt);
-    write_certificates(&crt_ctx);
-    verify_signatures(&crt_ctx, &root_crt);
-    verifyDataSignature(nonce, sizeof(nonce), signature, sizeof(signature), &GetEkCert(&crt_ctx)->pk);
-    verify_tcis(&crt_ctx);
-    mbedtls_x509_crt_free(&crt_ctx);
-    mbedtls_x509_crt_free(&root_crt);
+    parseBuffers(bufferCrts, sizeof(bufferCrts),
+                 bufferSizes, sizeof(bufferSizes), &crtChain);
+
+    printInfosOfCertificateChain(&crtChain, &crtRoot);
+    writeCertificateChain(&crtChain);
+    verifyCertificateChainSignatures(&crtChain, &crtRoot);
+    verifyDataSignature(nonce, sizeof(nonce), signature, sizeof(signature), &GetEkCert(&crtChain)->pk);
+    verifyTcis(&crtChain);
+    mbedtls_x509_crt_free(&crtChain);
+    mbedtls_x509_crt_free(&crtRoot);
 
     return 0;
 }
