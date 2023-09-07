@@ -404,6 +404,16 @@ static int verifyDataSignature(uint8_t *data, size_t dataSize, uint8_t *signatur
     return res;
 }
 
+static void FillWithRandomData(uint8_t *data, const size_t dataSize)
+{
+    srand(time(NULL));
+
+    for (size_t i = 0; i < dataSize; i++)
+    {
+        data[i] = (uint8_t)rand();
+    }
+}
+
 int main(void)
 {
     // The certificates are stored here in DER format
@@ -427,14 +437,15 @@ int main(void)
     parseCrtFromBuffer(&crtRoot, rootCrtPem, sizeof(rootCrtPem), "rootCrtPem");
 
     uint8_t signature[256];
-    uint8_t nonce[] = "Hello world";
+    uint8_t nonce[128];
+    FillWithRandomData(nonce, sizeof(nonce));
 
     /**
      * All functions only return if they were successful.
      * This keeps the following code quite clean and easy to follow.
      */
 
-    printf("Invoking fTPM TA to attest itself and provide a nonce... ");
+    printf("Invoking fTPM TA with nonce to attest itself ...");
     invoke_ftpm_ta(bufferCrts, sizeof(bufferCrts),
                    bufferSizes, sizeof(bufferSizes),
                    signature, sizeof(signature),
@@ -467,7 +478,13 @@ int main(void)
     printf("Note that the TCI of bl2 changes on each compilation.\n");
     printf("So, you might want to keep it untrusted during development, and set the TCI only once right before deployment.\n");
     verifyTcis(&crtChain);
-    
+
+    /**
+     * "The floors are like my children!"
+     * - The Janitor (Scrubs Season 4, Ep. 24)
+     * 
+     * Let's be like the janitor and clean our stuff.
+     */
     mbedtls_x509_crt_free(&crtChain);
     mbedtls_x509_crt_free(&crtRoot);
 
