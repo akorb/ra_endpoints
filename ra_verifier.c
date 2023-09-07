@@ -113,7 +113,6 @@ static TEEC_Result invoke_ftpm_ta(uint8_t *bufferCrts, size_t bufferCrtsLen,
     operation.params[3].tmpref.buffer = bufferToSignData;
     operation.params[3].tmpref.size = bufferToSignDataSize;
 
-    printf("Invoking fTPM TA to attest itself... \n");
     result = TEEC_InvokeCommand(&session, TA_FTPM_ATTEST,
                                 &operation, &errOrigin);
     if (result != TEEC_SUCCESS)
@@ -143,8 +142,8 @@ static int parseCrtFromBuffer(mbedtls_x509_crt *crt, const uint8_t *inBuf, const
     {
         char errorBuf[256];
         mbedtls_strerror(res, errorBuf, sizeof(errorBuf));
-        printf(" parsing %s failed\n  !  mbedtls_x509_crt_parse returned -0x%x - %s\n",
-               certName, (unsigned int)-res, errorBuf);
+        errx(EXIT_FAILURE, " parsing %s failed\n  !  mbedtls_x509_crt_parse returned -0x%x - %s\n",
+             certName, (unsigned int)-res, errorBuf);
     }
     return res;
 }
@@ -304,8 +303,7 @@ static int printInfosOfCertificateChain(mbedtls_x509_crt *crtChain, mbedtls_x509
     {
         if (crtChain->pk.pk_info != mbedtls_pk_info_from_type(MBEDTLS_PK_RSA))
         {
-            printf("We only support RSA certificates so far.\n");
-            return -1;
+            errx(EXIT_FAILURE, "We only support RSA certificates so far.\n");
         }
 
         // Print Subject
@@ -349,20 +347,14 @@ static int verifyCertificateChainSignatures(mbedtls_x509_crt *crtChain, mbedtls_
         char verifyBuf[512];
         mbedtls_x509_crt_verify_info(verifyBuf, sizeof(verifyBuf), "  ! ", flags);
         printf("Verification of certificate signatures failed. Reason: %s\n", verifyBuf);
-        printf("Error: 0x%04x; flag: %u\n", res, flags);
+        errx(EXIT_FAILURE, "Error: 0x%04x; flag: %u\n", res, flags);
     }
-    else
-        printf("Verification of certificate signatures OK\n");
 
     return res;
 }
 
 static int verifyTcis(mbedtls_x509_crt *crtChain)
 {
-    printf("\n");
-    printf("Verification of trustworthiness of software chain (BLn -> fTPM).\n");
-    printf("Note that the TCI of bl2 changes on each compilation.\n");
-    printf("So, you might want to keep it untrusted during development, and set the TCI only once right before deployment.\n");
     for (int i = 0; crtChain != NULL; crtChain = crtChain->next, i++)
     {
         uint8_t *extAddr;
@@ -383,7 +375,7 @@ static int verifyTcis(mbedtls_x509_crt *crtChain)
     return 0;
 }
 
-static void verifyDataSignature(uint8_t *data, size_t dataSize, uint8_t *signature, size_t signatureSize, mbedtls_pk_context *pk)
+static int verifyDataSignature(uint8_t *data, size_t dataSize, uint8_t *signature, size_t signatureSize, mbedtls_pk_context *pk)
 {
     // Get the message digest info structure for SHA256
     const mbedtls_md_info_t *mdinfo = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
@@ -395,21 +387,21 @@ static void verifyDataSignature(uint8_t *data, size_t dataSize, uint8_t *signatu
     mbedtls_pk_rsassa_pss_options options;
     options.mgf1_hash_id = MBEDTLS_MD_SHA256;
     options.expected_salt_len = MBEDTLS_RSA_SALT_LEN_ANY;
-    int st = mbedtls_pk_verify_ext(MBEDTLS_PK_RSASSA_PSS, &options, pk,
-                                   mdinfo->type, md, mdinfo->size,
-                                   signature, signatureSize);
-    if (st != 0)
+    int res = mbedtls_pk_verify_ext(MBEDTLS_PK_RSASSA_PSS, &options, pk,
+                                    mdinfo->type, md, mdinfo->size,
+                                    signature, signatureSize);
+
+    if (res != 0)
     {
-        // Signature invalid!
-        printf("Signature invalid!\n");
-    }
-    else
-    {
-        // Signature valid
-        printf("Signature valid!\n");
+        char errorBuf[256];
+        mbedtls_strerror(res, errorBuf, sizeof(errorBuf));
+        errx(EXIT_FAILURE, "failed\n  !  mbedtls_pk_verify_ext returned -0x%x - %s\n",
+             (unsigned int)-res, errorBuf);
     }
 
     free(md);
+
+    return res;
 }
 
 int main(void)
@@ -424,29 +416,58 @@ int main(void)
     // Array size must be at least length of chain + 1
     uint16_t bufferSizes[8];
 
+    // Disable buffering of stdout since we write some lines without trailing "\n"
+    // which wouldn't be visible until writing a new line otherwise.
+    setvbuf(stdout, NULL, _IONBF, 0);
+
     mbedtls_x509_crt crtChain, crtRoot;
     mbedtls_x509_crt_init(&crtChain);
     mbedtls_x509_crt_init(&crtRoot);
 
-    int res = parseCrtFromBuffer(&crtRoot, rootCrtPem, sizeof(rootCrtPem), "rootCrtPem");
-    if (res != 0)
-        return res;
+    parseCrtFromBuffer(&crtRoot, rootCrtPem, sizeof(rootCrtPem), "rootCrtPem");
 
     uint8_t signature[256];
     uint8_t nonce[] = "Hello world";
+
+    /**
+     * All functions only return if they were successful.
+     * This keeps the following code quite clean and easy to follow.
+     */
+
+    printf("Invoking fTPM TA to attest itself and provide a nonce... ");
     invoke_ftpm_ta(bufferCrts, sizeof(bufferCrts),
                    bufferSizes, sizeof(bufferSizes),
                    signature, sizeof(signature),
                    nonce, sizeof(nonce));
+    printf("Success\n\n");
 
+    printf("Parsing returned buffers... ");
     parseBuffers(bufferCrts, sizeof(bufferCrts),
                  bufferSizes, sizeof(bufferSizes), &crtChain);
+    printf("Success\n\n");
 
+    printf("Print infos of certificate chain:\n");
     printInfosOfCertificateChain(&crtChain, &crtRoot);
+    printf("\n");
+
+    printf("Write certificates retrieved from fTPM TA to hard disk for further investigation... ");
     writeCertificateChain(&crtChain);
+    printf("Success\n\n");
+
+    printf("Verify signature of each certificate in chain rooted in embedded root certificate... ");
     verifyCertificateChainSignatures(&crtChain, &crtRoot);
+    printf("Signatures valid\n\n");
+
+    printf("Verify the signature of the nonce to ensure the TPM possesses the matching private key to the public key in the EKcert... ");
     verifyDataSignature(nonce, sizeof(nonce), signature, sizeof(signature), &GetEkCert(&crtChain)->pk);
+    printf("Signature valid\n\n");
+
+    printf("Check whether we consider the TCIs of the components as trustworthy:\n");
+    printf("Verification of trustworthiness of software chain (BLn -> fTPM).\n");
+    printf("Note that the TCI of bl2 changes on each compilation.\n");
+    printf("So, you might want to keep it untrusted during development, and set the TCI only once right before deployment.\n");
     verifyTcis(&crtChain);
+    
     mbedtls_x509_crt_free(&crtChain);
     mbedtls_x509_crt_free(&crtRoot);
 
