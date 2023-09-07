@@ -55,11 +55,11 @@ static TEEC_Result invoke_ftpm_ta(uint8_t *bufferCrts, size_t bufferCrtsLen,
     TEEC_Result result;
 
     /**
-     * From the TEE Client API Specification:
-     * 1: within the TEE Client API implementation
-     * 2: within the underlying communications stack linking the rich OS with the TEE
-     * 3: within the common TEE code
-     * 4: within the Trusted Application code
+     * Possible values from the TEE Client API Specification:
+     * 1: the TEE Client API implementation
+     * 2: the underlying communications stack linking the rich OS with the TEE
+     * 3: the common TEE code
+     * 4: the Trusted Application code
      */
     uint32_t errOrigin;
 
@@ -148,11 +148,10 @@ static int parseCrtFromBuffer(mbedtls_x509_crt *crt, const uint8_t *inBuf, const
     return res;
 }
 
-static int parseBuffers(const uint8_t *bufferCrts, const size_t bufferCrtsSize,
+static int parseCrtChainFromBuffer(const uint8_t *bufferCrts, const size_t bufferCrtsSize,
                         const uint16_t *bufferSizes, const size_t bufferSizesSize,
-                        mbedtls_x509_crt *startCrt)
+                        mbedtls_x509_crt *crtChain)
 {
-    int res;
     int certificateCount = bufferSizes[0];
 
     const uint16_t *sizes = &bufferSizes[1];
@@ -163,9 +162,7 @@ static int parseBuffers(const uint8_t *bufferCrts, const size_t bufferCrtsSize,
         assert(&sizes[i] + sizeof(sizes[0]) < &bufferSizes[bufferSizesSize]);
         assert(curCrt + sizes[i] < &bufferCrts[bufferCrtsSize]);
 
-        res = parseCrtFromBuffer(startCrt, curCrt, sizes[i], chainInfo[i].certFilename);
-        if (res != 0)
-            return res;
+        parseCrtFromBuffer(crtChain, curCrt, sizes[i], chainInfo[i].certFilename);
 
         curCrt += sizes[i];
     }
@@ -452,8 +449,8 @@ int main(void)
                    nonce, sizeof(nonce));
     printf("Success\n\n");
 
-    printf("Parsing returned buffers... ");
-    parseBuffers(bufferCrts, sizeof(bufferCrts),
+    printf("Parsing returned buffers containing the X509 certificates in DER format... ");
+    parseCrtChainFromBuffer(bufferCrts, sizeof(bufferCrts),
                  bufferSizes, sizeof(bufferSizes), &crtChain);
     printf("Success\n\n");
 
