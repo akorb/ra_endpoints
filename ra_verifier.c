@@ -11,6 +11,7 @@
 
 #include <DiceTcbInfo.h>
 #include "TCIs.h"
+#include "cert_root.h"
 
 #include <mbedtls/x509_crt.h>
 #include <mbedtls/oid.h>
@@ -431,7 +432,7 @@ int main(void)
     mbedtls_x509_crt_init(&crtChain);
     mbedtls_x509_crt_init(&crtRoot);
 
-    parseCrtFromBuffer(&crtRoot, rootCrtPem, sizeof(rootCrtPem), "rootCrtPem");
+    parseCrtFromBuffer(&crtRoot, crt_manufacturer, sizeof(crt_manufacturer), "crt_manufacturer");
 
     uint8_t signature[256];
     uint8_t nonce[128];
