@@ -28,6 +28,8 @@ CFLAGS += -g3
 
 LDFLAGS += -L $(OPTEE_ROOT)/out-br/per-package/optee_client_ext/target/usr/lib/ -lteec
 
+REQUIRED_HEADER_FILES = TCIs.h cert_root.h
+
 # Note the order of this list matters
 # See https://github.com/Mbed-TLS/mbedtls#compiling
 MBEDTLS_LIBRARY_NAMES = libmbedtls.a libmbedx509.a libmbedcrypto.a
@@ -37,8 +39,8 @@ MBEDTLS_LIBRARY_PATHS = $(addprefix mbedtls/library/,$(MBEDTLS_LIBRARY_NAMES))
 
 all: ra_verifier
 
-TCIs.h cert_root.h:
-	$(MAKE) -C $(CERTS_WORKSPACE_PATH) $(shell pwd)/$@ HEADER_OUT=$(shell pwd) OPTEE_ROOT=$(OPTEE_ROOT)
+$(REQUIRED_HEADER_FILES):
+	$(MAKE) -C $(CERTS_WORKSPACE_PATH) install-$@ INSTALL_PATH=$(abspath .)
 
 mbedtls:
 	cp -r $(MBEDTLS_PATH) .
@@ -47,10 +49,10 @@ mbedtls:
 $(MBEDTLS_LIBRARY_PATHS): | mbedtls
 	$(MAKE) -C mbedtls/library CC="$(CC)" AR="$(AR)" $(@F)
 
-ra_verifier: ra_verifier.c $(MBEDTLS_LIBRARY_PATHS) TCIs.h cert_root.h
+ra_verifier: ra_verifier.c $(MBEDTLS_LIBRARY_PATHS) $(REQUIRED_HEADER_FILES)
 	@echo	"Cross compile path: " $(CROSS_COMPILE)
 	@echo "  CC      $@"
-	$(CC) -o $@ $(CFLAGS) $(LDFLAGS) -Wno-suggest-attribute=format $(addprefix $(ASN1C_GEN_PATH)/,$(ASN_MODULE_SRCS)) $< $(MBEDTLS_LIBRARY_PATHS)
+	$(CC) -o $@ $(CFLAGS) $(LDFLAGS) $(addprefix $(ASN1C_GEN_PATH)/,$(ASN_MODULE_SRCS)) $< $(MBEDTLS_LIBRARY_PATHS)
 
 clean:
-	rm -rf ra_verifier mbedtls TCIs.h cert_root.h
+	rm -rf ra_verifier mbedtls $(REQUIRED_HEADER_FILES)
