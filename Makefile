@@ -39,6 +39,10 @@ MBEDTLS_LIBRARY_PATHS = $(addprefix mbedtls/library/,$(MBEDTLS_LIBRARY_NAMES))
 
 all: ra_verifier
 
+# The install-* targets of the certs_workspace shouldn't be executed in parallel
+# Building ra_verifier is fast anyways, so just prohibit parallelization.
+.NOTPARALLEL:
+
 $(REQUIRED_HEADER_FILES):
 	$(MAKE) -C $(CERTS_WORKSPACE_PATH) install-$@ INSTALL_PATH=$(abspath .)
 
