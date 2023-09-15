@@ -471,18 +471,9 @@ int main(void)
     verifyDataSignature(nonce, sizeof(nonce), signature, sizeof(signature), &GetEkCert(&crtChain)->pk);
     printf("Signature valid\n\n");
 
-    printf("Check whether we consider the TCIs of the components as trustworthy:\n");
-    printf("Verification of trustworthiness of software chain (BLn -> fTPM).\n");
-    printf("Note that the TCI of bl2 changes on each compilation.\n");
-    printf("So, you might want to keep it untrusted during development, and set the TCI only once right before deployment.\n");
+    printf("Check whether we consider the TCIs of the components received as part of the certificates as trustworthy:\n");
     verifyTcis(&crtChain);
 
-    /**
-     * "The floors are like my children!"
-     * - The Janitor (Scrubs Season 4, Ep. 24)
-     * 
-     * Let's be like the janitor and clean our stuff.
-     */
     mbedtls_x509_crt_free(&crtChain);
     mbedtls_x509_crt_free(&crtRoot);
 
