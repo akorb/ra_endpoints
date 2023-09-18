@@ -21,11 +21,11 @@
 #include <mbedtls/pem.h>
 
 static const chain_t chainInfo[] = {
-    CHAIN_ENTRY_WITHOUT_TCI(bl1),
-    CHAIN_ENTRY(bl2),
-    CHAIN_ENTRY(bl31),
-    CHAIN_ENTRY(bl32),
-    CHAIN_ENTRY(ekcert),
+    CHAIN_ENTRY(bl1, NULL),
+    CHAIN_ENTRY(bl2, tci_bl2),
+    CHAIN_ENTRY(bl31, tci_bl31),
+    CHAIN_ENTRY(bl32, tci_bl32),
+    CHAIN_ENTRY(ftpm, tci_ftpm),
 };
 
 static const TEEC_UUID ftpmTEEApp = TA_FTPM_UUID;

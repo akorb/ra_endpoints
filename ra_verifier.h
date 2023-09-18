@@ -3,24 +3,22 @@
 
 #define ARRAY_LEN(array) (sizeof(array) / sizeof(array[0]))
 
+/**
+ * `name` is only used for debugging purposes.
+ * `certFilename` is used to store the received certificate from the SW onto the hard disk.
+ * `expectedTci` is the TCI we consider as trustworty.
+ */
 typedef struct {
     const char name[8];
     const char certFilename[10];
     const unsigned char *expectedTci;
 } chain_t;
 
-#define CHAIN_ENTRY(bl) \
+#define CHAIN_ENTRY(bl, tci) \
     { \
         .name = #bl, \
         .certFilename=#bl".crt", \
-        .expectedTci = tci_ ## bl, \
-    }
-
-#define CHAIN_ENTRY_WITHOUT_TCI(bl) \
-    { \
-        .name = #bl, \
-        .certFilename=#bl".crt", \
-        .expectedTci = NULL, \
+        .expectedTci = tci, \
     }
 
 #define PEM_BEGIN_CRT           "-----BEGIN CERTIFICATE-----\n"
