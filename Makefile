@@ -12,7 +12,7 @@ MBEDTLS_PATH         ?= $(OPTEE_ROOT)/mbedtls
 FTPM_PATH            ?= $(OPTEE_ROOT)/ms-tpm-20-ref
 OPTEE_CLIENT_PATH    ?= $(OPTEE_ROOT)/optee_client
 ALIAS_CERT_EXT_PATH       ?= $(OPTEE_ROOT)/alias_cert_extension
-CERTS_WORKSPACE_PATH ?= $(OPTEE_ROOT)/certs_workspace
+DICE_DATA_GENERATOR ?= $(OPTEE_ROOT)/dice_data_generator
 
 include $(ALIAS_CERT_EXT_PATH)/Makefile.am.libasncodec
 
@@ -39,12 +39,12 @@ MBEDTLS_LIBRARY_PATHS = $(addprefix mbedtls/library/,$(MBEDTLS_LIBRARY_NAMES))
 
 all: ra_verifier
 
-# The install-* targets of the certs_workspace shouldn't be executed in parallel
+# The install-* targets of the dice_data_generator shouldn't be executed in parallel
 # Building ra_verifier is fast anyways, so just prohibit parallelization.
 .NOTPARALLEL:
 
 $(REQUIRED_HEADER_FILES):
-	$(MAKE) -C $(CERTS_WORKSPACE_PATH) install-$@ INSTALL_PATH=$(abspath .)
+	$(MAKE) -C $(DICE_DATA_GENERATOR) install-$@ INSTALL_PATH=$(abspath .)
 
 mbedtls:
 	cp -r $(MBEDTLS_PATH) .
