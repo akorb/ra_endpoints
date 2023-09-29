@@ -1,4 +1,5 @@
 ra_verifier
+ra_attestee
 mbedtls
 .vscode
 TCIs.h

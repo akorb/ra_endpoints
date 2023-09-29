@@ -26,7 +26,7 @@ CFLAGS += $(ASN_MODULE_CFLAGS)
 CFLAGS += -Wall
 CFLAGS += -g3
 
-LDFLAGS += -L $(OPTEE_ROOT)/out-br/per-package/optee_client_ext/target/usr/lib/ -lteec
+LD_TEEC += -L $(OPTEE_ROOT)/out-br/per-package/optee_client_ext/target/usr/lib/ -lteec
 
 REQUIRED_HEADER_FILES = TCIs.h cert_root.h
 
@@ -37,7 +37,7 @@ MBEDTLS_LIBRARY_PATHS = $(addprefix mbedtls/library/,$(MBEDTLS_LIBRARY_NAMES))
 
 .PHONY: all clean
 
-all: ra_verifier
+all: ra_verifier ra_attestee
 
 # The install-* targets of the dice_data_generator shouldn't be executed in parallel
 # Building ra_verifier is fast anyways, so just prohibit parallelization.
@@ -53,10 +53,15 @@ mbedtls:
 $(MBEDTLS_LIBRARY_PATHS): | mbedtls
 	$(MAKE) -C mbedtls/library CC="$(CC)" AR="$(AR)" $(@F)
 
-ra_verifier: ra_verifier.c $(MBEDTLS_LIBRARY_PATHS) $(REQUIRED_HEADER_FILES)
+ra_verifier: ra_verifier.c common.h common.c $(MBEDTLS_LIBRARY_PATHS) $(REQUIRED_HEADER_FILES)
 	@echo	"Cross compile path: " $(CROSS_COMPILE)
 	@echo "  CC      $@"
-	$(CC) -o $@ $(CFLAGS) $(LDFLAGS) $(addprefix $(ALIAS_CERT_EXT_PATH)/,$(ASN_MODULE_SRCS)) $< $(MBEDTLS_LIBRARY_PATHS)
+	$(CC) -o $@ $(CFLAGS) $(addprefix $(ALIAS_CERT_EXT_PATH)/,$(ASN_MODULE_SRCS)) $< $(MBEDTLS_LIBRARY_PATHS) common.c
+
+ra_attestee: ra_attestee.c common.h common.c
+	@echo	"Cross compile path: " $(CROSS_COMPILE)
+	@echo "  CC      $@"
+	$(CC) -o $@ $(CFLAGS) $(LD_TEEC) $< common.c
 
 clean:
-	rm -rf ra_verifier mbedtls $(REQUIRED_HEADER_FILES)
+	rm -rf ra_verifier ra_attestee mbedtls $(REQUIRED_HEADER_FILES)

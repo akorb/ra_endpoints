@@ -1,11 +1,11 @@
 #ifndef RA_VERIFIER_H
 #define RA_VERIFIER_H
 
-#define ARRAY_LEN(array) (sizeof(array) / sizeof(array[0]))
+#define ARRAY_LEN(array) (sizeof((array)) / sizeof((array)[0]))
 
 /**
  * `name` is only used for debugging purposes.
- * `certFilename` is used to store the received certificate from the SW onto the hard disk.
+ * `certFilename` is used to store the received certificates onto the hard disk.
  * `expectedTci` is the TCI we consider as trustworty.
  */
 typedef struct {
@@ -14,11 +14,11 @@ typedef struct {
     const unsigned char *expectedTci;
 } chain_t;
 
-#define CHAIN_ENTRY(bl, tci) \
+#define CHAIN_ENTRY(bl_name, crt_name, tci_array) \
     { \
-        .name = #bl, \
-        .certFilename=#bl".crt", \
-        .expectedTci = tci, \
+        .name = bl_name, \
+        .certFilename= crt_name, \
+        .expectedTci = tci_array, \
     }
 
 #define PEM_BEGIN_CRT           "-----BEGIN CERTIFICATE-----\n"
