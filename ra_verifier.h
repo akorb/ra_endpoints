@@ -8,22 +8,23 @@
  * `certFilename` is used to store the received certificates onto the hard disk.
  * `expectedTci` is the TCI we consider as trustworty.
  */
-typedef struct {
+typedef struct
+{
     const char name[8];
     const char certFilename[10];
-    const unsigned char *expectedTci;
 } chain_t;
 
-#define CHAIN_ENTRY(bl_name, crt_name, tci_array) \
-    { \
-        .name = bl_name, \
-        .certFilename= crt_name, \
-        .expectedTci = tci_array, \
+#define CHAIN_ENTRY(bl_name, crt_name) \
+    {                                  \
+        .name = bl_name,               \
+        .certFilename = crt_name,      \
     }
 
-#define PEM_BEGIN_CRT           "-----BEGIN CERTIFICATE-----\n"
-#define PEM_END_CRT             "-----END CERTIFICATE-----\n"
+#define PEM_BEGIN_CRT "-----BEGIN CERTIFICATE-----\n"
+#define PEM_END_CRT "-----END CERTIFICATE-----\n"
 
 #define SHA256_LEN (256 / 8)
+
+#define flush_stdin() while (getchar() != '\n')
 
 #endif /* RA_VERIFIER_H */

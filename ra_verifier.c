@@ -18,7 +18,6 @@
 #include <DiceTcbInfo.h>
 
 #include "common.h"
-#include "TCIs.h"
 #include "cert_root.h"
 #include "ra_verifier.h"
 
@@ -26,11 +25,11 @@
 static const uint8_t diceAttestationOid[] = {0x67, 0x81, 0x05, 0x05, 0x04, 0x01};
 
 static const chain_t chainInfo[] = {
-    CHAIN_ENTRY("bl1", "bl1.crt", NULL),
-    CHAIN_ENTRY("bl2", "bl2.crt", tci_bl2),
-    CHAIN_ENTRY("bl31", "bl31.crt", tci_bl31),
-    CHAIN_ENTRY("bl32", "bl32.crt", tci_bl32),
-    CHAIN_ENTRY("fTPM", "ekcert.crt", tci_ftpm),
+    CHAIN_ENTRY("bl1", "bl1.crt"),
+    CHAIN_ENTRY("bl2", "bl2.crt"),
+    CHAIN_ENTRY("bl31", "bl31.crt"),
+    CHAIN_ENTRY("bl32", "bl32.crt"),
+    CHAIN_ENTRY("fTPM", "ekcert.crt"),
 };
 
 static mbedtls_x509_crt *getEkCert(mbedtls_x509_crt *crtChain)
@@ -232,38 +231,6 @@ static int verifyCertificateChainSignatures(mbedtls_x509_crt *crtChain, mbedtls_
     return res;
 }
 
-static int verifyTcis(mbedtls_x509_crt *crtChain)
-{
-    int untrustedOccured = 0;
-    for (int i = 0; crtChain != NULL; crtChain = crtChain->next, i++)
-    {
-        uint8_t *extAddr;
-        int extDataLen;
-        uint8_t fwid[SHA256_LEN];
-        findX509ExtByOid(crtChain, diceAttestationOid, sizeof(diceAttestationOid), &extAddr, &extDataLen);
-        if (extAddr != NULL && chainInfo[i].expectedTci != NULL)
-        {
-            parseAttestationExtension(extAddr, extDataLen, fwid, sizeof(fwid));
-
-            printf("Checking trustworthiness of %-4s...", chainInfo[i].name);
-            if (untrustedOccured == 0 && memcmp(fwid, chainInfo[i].expectedTci, sizeof(fwid)) == 0)
-                printf(" Trusted\n");
-            else
-            {
-                printf(" Untrusted\n");
-
-                if (untrustedOccured == 0)
-                {
-                    if (crtChain->next != NULL)
-                        printf(" From now on, all components are untrusted.\n");
-                    untrustedOccured = 1;
-                }
-            }
-        }
-    }
-    return untrustedOccured;
-}
-
 static int parseCrtFromBuffer(mbedtls_x509_crt *crt, const uint8_t *inBuf, const size_t inBufSize, const char *certName)
 {
     int res = mbedtls_x509_crt_parse(crt, inBuf, inBufSize);
@@ -374,28 +341,20 @@ int verifyCertificateChain(const packet_t *buffer, const mbedtls_x509_crt *crtCh
     // which wouldn't be visible until writing a new line otherwise.
     setvbuf(stdout, NULL, _IONBF, 0);
 
-    printf("Print infos of certificate chain:\n");
-    res = printInfosOfCertificateChain(crtChain, crtRoot);
-    GOTO_ON_ERROR(res, error, "", "Failed\n\n");
+    printf("Verify signature of each certificate in chain rooted in embedded root certificate... ");
+    res = verifyCertificateChainSignatures(crtChain, crtRoot);
+    GOTO_ON_ERROR(res, error, "Signatures valid\n\n", "Signatures invalid\n\n");
 
     printf("Write certificates retrieved from fTPM TA to hard disk for further investigation... ");
     res = writeCertificateChain(crtChain);
     GOTO_ON_ERROR(res, error, "Success\n\n", "Failed\n\n");
 
-    printf("Verify signature of each certificate in chain rooted in embedded root certificate... ");
-    res = verifyCertificateChainSignatures(crtChain, crtRoot);
-    GOTO_ON_ERROR(res, error, "Signatures valid\n\n", "Signatures invalid\n\n");
-
     printf("Ensure that the subject key is assigned as a restricted signing key\n");
-    printf("Note that this value is only reliable if we later trust all the TCIs... ");
+    printf("Note that this value is only reliable if we also trust all the TCIs... ");
     // Need to negate the return value because of different semantics of the int value
     // Required to keep the "is*" semantic of the isDigitalSignatureKey function, i.e., 1 = good, 0 = bad, which is vice versa for other functions
     res = !isDigitalSignatureKey(getEkCert(crtChain));
     GOTO_ON_ERROR(res, error, "Good\n\n", "Bad\n\n");
-
-    printf("Check whether we consider the TCIs of the components received as part of the certificates as trustworthy:\n");
-    res = verifyTcis(crtChain);
-    GOTO_ON_ERROR(res, error, "", "");
 
 error:
     return res;
@@ -411,12 +370,12 @@ static void FillWithRandomData(uint8_t *data, const size_t dataSize)
     }
 }
 
-static int verifyAttestationData(const uint8_t *nonce, const size_t nonceSize)
+static int verifyAndPrintAttestationData(const uint8_t *nonce, const size_t nonceSize)
 {
     char nonce_str[nonceSize * 2 + 1];
     bytesToHexString(nonce_str, sizeof(nonce_str), nonce, nonceSize);
 
-    const char check_quote_cmd_template[] = "tpm2_checkquote -Q -u %s -m quote.msg -s quote.sig -f quote.pcrs -q %s";
+    const char check_quote_cmd_template[] = "tpm2_checkquote -u %s -m quote.msg -s quote.sig -f quote.pcrs -q %s";
     char check_quote_cmd[sizeof(check_quote_cmd_template) + sizeof(nonce_str) + sizeof(EKPUB_PEM_FILE)];
     snprintf(check_quote_cmd, sizeof(check_quote_cmd), check_quote_cmd_template, EKPUB_PEM_FILE, nonce_str);
     return executeCommand(check_quote_cmd);
@@ -439,36 +398,32 @@ static int sendAttestationDecision(int socketFd, packet_t *buffer)
 static enum AttestationDecision decideIfClientIsTrustworthy(const packet_t *buffer, const uint8_t *nonce, const size_t nonceSize,
                                                             const mbedtls_x509_crt *crtChain, const mbedtls_x509_crt *crtRoot)
 {
-    int trusted = 1;
-    if (verifyCertificateChain(buffer, crtChain, crtRoot) != 0)
-    {
-        trusted = 0;
-        printf("Certificate chain or embedded TCIs not trustworthy.\n");
-    }
-    else
-    {
-        printf("Certificate chain and embedded TCIs trustworthy.\n");
-    }
+    int res;
+    int answer;
+    res = verifyCertificateChain(buffer, crtChain, crtRoot);
+    GOTO_ON_ERROR(res, error, "Certificate chain trustworthy.\n", "Certificate chain not trustworthy.\n");
 
-    if (verifyAttestationData(nonce, nonceSize) != 0)
-    {
-        trusted = 0;
-        printf("Attestation data is not trustworthy.\n");
-    }
-    else
-    {
-        printf("Attestation data is trustworthy.\n");
-    }
+    printf("Print infos of certificate chain:\n");
+    res = printInfosOfCertificateChain(crtChain, crtRoot);
+    GOTO_ON_ERROR(res, error, "", "Failed\n\n");
 
-    if (trusted == 1)
-    {
-        printf("Everything is fine!\n");
-        printf("We didn't check the content of the quote, though.\n");
-        printf("But a real verifier is capable of deciding whether the client is trustworthy now.\n");
-        printf("Accepting client.\n");
-        return CLIENT_ACCEPTED;
-    }
+    printf("Do you consider these FWIDs as trustworthy? (y/n) ");
+    answer = getchar();
+    flush_stdin();
+    GOTO_ON_ERROR(answer != 'y', error, "", "");
 
+    res = verifyAndPrintAttestationData(nonce, nonceSize);
+    GOTO_ON_ERROR(res, error, "Quote is trustworthy.\n", "Quote is not trustworthy\n");
+
+    printf("Do you consider these PCR values as trustworthy? (y/n) ");
+    answer = getchar();
+    flush_stdin();
+    GOTO_ON_ERROR(answer != 'y', error, "", "");
+
+    printf("Accepting client.\n");
+    return CLIENT_ACCEPTED;
+
+error:
     printf("Declining client.\n");
     return CLIENT_DECLINED;
 }

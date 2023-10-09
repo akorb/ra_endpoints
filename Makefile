@@ -11,8 +11,8 @@ OPTEE_ROOT           ?= ..
 MBEDTLS_PATH         ?= $(OPTEE_ROOT)/mbedtls
 FTPM_PATH            ?= $(OPTEE_ROOT)/ms-tpm-20-ref
 OPTEE_CLIENT_PATH    ?= $(OPTEE_ROOT)/optee_client
-ALIAS_CERT_EXT_PATH       ?= $(OPTEE_ROOT)/alias_cert_extension
-DICE_DATA_GENERATOR ?= $(OPTEE_ROOT)/dice_data_generator
+ALIAS_CERT_EXT_PATH  ?= $(OPTEE_ROOT)/alias_cert_extension
+DICE_DATA_GENERATOR  ?= $(OPTEE_ROOT)/dice_data_generator
 
 include $(ALIAS_CERT_EXT_PATH)/Makefile.am.libasncodec
 
@@ -28,7 +28,7 @@ CFLAGS += -g3
 
 LD_TEEC += -L $(OPTEE_ROOT)/out-br/per-package/optee_client_ext/target/usr/lib/ -lteec
 
-REQUIRED_HEADER_FILES = TCIs.h cert_root.h
+REQUIRED_HEADER_FILES = cert_root.h
 
 # Note the order of this list matters
 # See https://github.com/Mbed-TLS/mbedtls#compiling
