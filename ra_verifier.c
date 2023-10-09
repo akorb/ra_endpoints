@@ -166,13 +166,13 @@ static int printInfosOfCertificateChain(mbedtls_x509_crt *crtChain, mbedtls_x509
     const char subjectTemplate[] = "Cert [%d]: Subject: %s\n";
     const char subjectKeyTemplate[] = "          Subject key: %02X %02X %02X %02X ...\n";
 
-    // Handle root certificate separately because it doesn't have a TCI to print
+    // Handle root certificate separately because it doesn't have a FWID to print
 
     // Print Subject of root certificate
     mbedtls_x509_dn_gets(subject, sizeof(subject), &crtRoot->subject);
     printf(subjectTemplate, 0, subject);
 
-    // Print Subject Key of root certificate
+    // Print Subject key of root certificate
     mbedtls_mpi_write_binary(&mbedtls_pk_rsa(crtRoot->pk)->N, pubKey, sizeof(pubKey));
     printf(subjectKeyTemplate, pubKey[0], pubKey[1], pubKey[2], pubKey[3]);
 
@@ -350,7 +350,7 @@ int verifyCertificateChain(const packet_t *buffer, const mbedtls_x509_crt *crtCh
     GOTO_ON_ERROR(res, error, "Success\n\n", "Failed\n\n");
 
     printf("Ensure that the subject key is assigned as a restricted signing key\n");
-    printf("Note that this value is only reliable if we also trust all the TCIs... ");
+    printf("Note that this value is only reliable if we also trust all the FWIDs... ");
     // Need to negate the return value because of different semantics of the int value
     // Required to keep the "is*" semantic of the isDigitalSignatureKey function, i.e., 1 = good, 0 = bad, which is vice versa for other functions
     res = !isDigitalSignatureKey(getEkCert(crtChain));

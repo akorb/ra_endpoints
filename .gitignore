@@ -2,5 +2,4 @@ ra_verifier
 ra_attestee
 mbedtls
 .vscode
-TCIs.h
 cert_root.h

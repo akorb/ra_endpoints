@@ -6,7 +6,6 @@
 /**
  * `name` is only used for debugging purposes.
  * `certFilename` is used to store the received certificates onto the hard disk.
- * `expectedTci` is the TCI we consider as trustworty.
  */
 typedef struct
 {
