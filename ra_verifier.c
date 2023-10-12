@@ -511,9 +511,9 @@ int main(void)
     mbedtls_x509_crt_init(&crtRoot);
     parseCrtFromBuffer(&crtRoot, crt_manufacturer, sizeof(crt_manufacturer), "crt_manufacturer");
 
-    printf("Waiting for attestee to connect\n");
     while (1)
     {
+        printf("Waiting for attestee to connect\n");
         activeSocket = accept(acceptSocket,
                               (struct sockaddr *)&address,
                               &addrlen);
