@@ -513,7 +513,7 @@ int main(void)
 
     while (1)
     {
-        printf("Waiting for attestee to connect\n");
+        printf("Waiting for prover to connect\n");
         activeSocket = accept(acceptSocket,
                               (struct sockaddr *)&address,
                               &addrlen);
